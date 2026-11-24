@@ -1,6 +1,7 @@
   // --- START OF FILE EmployeeLeavemanagement.jsx ---
 
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaCalendarAlt, FaChevronDown, FaFilter, FaListUl, FaSyncAlt, FaThLarge } from "react-icons/fa";
 import Swal from "sweetalert2"; // ✅ ADDED: SweetAlert import
@@ -141,7 +142,11 @@ const parseISODate = (dateStr) => {
 };
 
 const EmployeeLeavemanagement = () => {
+  const navigate = useNavigate();
+  const submitLockRef = useRef(false);
+
   const [user, setUser] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   // ✅ ADDED: State for attendance data and unplanned absences
   const [attendanceData, setAttendanceData] = useState([]);
@@ -1077,6 +1082,8 @@ const EmployeeLeavemanagement = () => {
   // ✅ UPDATED: Submit leave with LOP check
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitLockRef.current || isSubmitting) return;
+
     const { from, to, reason, halfDaySession, leaveType } = form;
     if (!from || !to || !reason || !leaveType) {
       // SweetAlert validation
@@ -1113,12 +1120,16 @@ const EmployeeLeavemanagement = () => {
       setShowLOPWarning(true);
       return;
     }
-    
+
+       
     // If no warnings, proceed with submission
     await submitLeaveRequest();
   };
 
   const submitLeaveRequest = async () => {
+    if (submitLockRef.current || isSubmitting) return;
+    submitLockRef.current = true;
+    setIsSubmitting(true);
     const { from, to, reason, halfDaySession, leaveType } = form;
     setSubmitError("");
 
@@ -1185,6 +1196,21 @@ const EmployeeLeavemanagement = () => {
     } catch (err) {
       console.error("submit error", err);
       const errMsg = err.response?.data?.message || err?.message || "Failed to submit leave request.";
+
+      // Navigate only when the backend confirms a duplicate request
+      const isDuplicate =
+        err.response?.status === 409 ||
+        errMsg.toLowerCase().includes("already submitted") ||
+        errMsg.toLowerCase().includes("already been submitted") ||
+        errMsg.toLowerCase().includes("duplicate");
+
+      if (isDuplicate) {
+        Swal.close();
+        setModalOpen(false);
+        navigate("/employee/leave-already-submitted");
+        return;
+      }
+
       // Show SweetAlert Error
       Swal.fire({
         icon: 'error',
@@ -1193,6 +1219,9 @@ const EmployeeLeavemanagement = () => {
         confirmButtonColor: '#d33'
       });
       setSubmitError(errMsg);
+    } finally {
+      submitLockRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -2182,14 +2211,16 @@ const EmployeeLeavemanagement = () => {
           <div className="flex gap-3 pt-4">
             <button
               type="submit"
-              className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold px-6 py-3 rounded-xl transition duration-200"
+              disabled={isSubmitting}
+              className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold px-6 py-3 rounded-xl transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none"
             >
-              Submit Leave Request
+              {isSubmitting ? "Submitting..." : "Submit Leave Request"}
             </button>
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={() => setModalOpen(false)}
-              className="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-semibold px-6 py-3 rounded-xl transition duration-200"
+              className="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-semibold px-6 py-3 rounded-xl transition duration-200 disabled:opacity-50"
             >
               Cancel
             </button>
@@ -2221,6 +2252,7 @@ const EmployeeLeavemanagement = () => {
         <div className="flex gap-3">
           <button
             onClick={() => {
+              if (submitLockRef.current || isSubmitting) return;
               setShowSandwichAlert(false);
               const hasLOPWarning = checkLOPWarning(form.from, form.to);
               if (hasLOPWarning) {
@@ -2229,7 +2261,8 @@ const EmployeeLeavemanagement = () => {
                 submitLeaveRequest();
               }
             }}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-3 rounded-xl transition duration-200"
+            disabled={isSubmitting}
+            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-3 rounded-xl transition duration-200 disabled:opacity-50 disabled:pointer-events-none"
           >
             Yes, Proceed
           </button>
@@ -2237,7 +2270,8 @@ const EmployeeLeavemanagement = () => {
             onClick={() => {
               setShowSandwichAlert(false);
             }}
-            className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold px-4 py-3 rounded-xl transition duration-200"
+            disabled={isSubmitting}
+            className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold px-4 py-3 rounded-xl transition duration-200 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -2292,10 +2326,12 @@ const EmployeeLeavemanagement = () => {
         <div className="flex gap-3">
           <button
             onClick={() => {
+              if (submitLockRef.current || isSubmitting) return;
               setShowLOPWarning(false);
               submitLeaveRequest();
             }}
-            className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-3 rounded-xl transition duration-200"
+            disabled={isSubmitting}
+            className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-3 rounded-xl transition duration-200 disabled:opacity-50 disabled:pointer-events-none"
           >
             Yes, Proceed as LOP
           </button>
@@ -2303,7 +2339,8 @@ const EmployeeLeavemanagement = () => {
             onClick={() => {
               setShowLOPWarning(false);
             }}
-            className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold px-4 py-3 rounded-xl transition duration-200"
+            disabled={isSubmitting}
+            className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold px-4 py-3 rounded-xl transition duration-200 disabled:opacity-50"
           >
             Cancel Request
           </button>

@@ -918,7 +918,29 @@ const TodayOverview = () => {
       return acc;
     }, {});
 
-    const activeEmployeeIds = new Set(allEmployees.filter(e => e.isActive !== false).map(e => e.employeeId));
+    const resignedIds = new Set();
+    const now = new Date();
+    resignationData.forEach(r => {
+      if (!r.employeeId) return;
+      const isCompletedOrExit = r.status === "Completed" || r.status === "Exit Formalities";
+      const isImmediate = r.status === "Approved" && r.noticePeriodType === "Immediate";
+      const isNoticeEnded = r.status === "Approved" && r.noticePeriodEndDate && new Date(r.noticePeriodEndDate) <= now;
+      if (isCompletedOrExit || isImmediate || isNoticeEnded) {
+        resignedIds.add(r.employeeId);
+      }
+    });
+
+    const isEmpActive = (e) => {
+      if (!e) return false;
+      if (e.isActive === false) return false;
+      const status = (e.status || "").toLowerCase().trim();
+      if (status === "inactive" || status === "resigned" || status === "deactive" || status === "deactivated" || status === "relieved" || status === "terminated") return false;
+      if (e.loginEnabled === false) return false;
+      if (resignedIds.has(e.employeeId)) return false;
+      return true;
+    };
+
+    const activeEmployeeIds = new Set(allEmployees.filter(isEmpActive).map(e => e.employeeId));
     const presentIds = new Set(attendanceData.map(att => att.employeeId));
 
     const onLeaveToday = leaveData.filter(leave => {

@@ -135,6 +135,24 @@ const leavePolicySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Prevent duplicate pending leave requests for the same employee and dates
+leaveRequestSchema.index(
+  {
+    adminId: 1,
+    employeeId: 1,
+    requesterType: 1,
+    from: 1,
+    to: 1,
+    leaveType: 1,
+    leaveDayType: 1,
+    halfDaySession: 1,
+  },
+  {
+    unique: true,
+    partialFilterExpression: { status: "Pending" },
+    name: "unique_pending_leave_request",
+  }
+);
 export const LeavePolicy = mongoose.model("LeavePolicy", leavePolicySchema);
 export default mongoose.model("LeaveRequest", leaveRequestSchema);
 // --- END OF FILE models/LeaveRequest.js ---

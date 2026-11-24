@@ -22,6 +22,15 @@ const getShiftDurationInHours = (startTime, endTime) => { if (!startTime || !end
 const formatDecimalHours = (decimalHours) => { if (decimalHours === undefined || decimalHours === null || isNaN(decimalHours)) return "0h 0m"; const hours = Math.floor(decimalHours); const minutes = Math.round((decimalHours - hours) * 60); if (minutes === 0) return `${hours}h`; return `${hours}h ${minutes}m`; };
 const getCurrentRole = (employee) => { if (employee.currentRole) return employee.currentRole; if (employee && Array.isArray(employee.experienceDetails)) { const currentExp = employee.experienceDetails.find(exp => exp.lastWorkingDate === "Present"); return currentExp?.role || "N/A"; } return "N/A"; };
 const getWorkedStatus = (punchIn, punchOut, apiStatus, fullDayThreshold, halfDayThreshold) => { const statusUpper = (apiStatus || "").toUpperCase(); if (statusUpper === "LEAVE") return "Leave"; if (statusUpper === "HOLIDAY") return "Holiday"; if (statusUpper === "ABSENT" && !punchIn) return "Absent"; if (punchIn && !punchOut) return "Working.."; if (!punchIn) return "Absent"; const workedMilliseconds = new Date(punchOut) - new Date(punchIn); const workedHours = workedMilliseconds / (1000 * 60 * 60); if (workedHours >= fullDayThreshold) return "Full Day"; if (workedHours >= halfDayThreshold) return "Half Day"; return "Absent"; };
+const isEmployeeActive = (emp, resignedIds = new Set()) => {
+  if (!emp) return false;
+  if (emp.isActive === false) return false;
+  const status = (emp.status || "").toLowerCase().trim();
+  if (status === "inactive" || status === "resigned" || status === "deactive" || status === "deactivated" || status === "relieved" || status === "terminated") return false;
+  if (emp.loginEnabled === false) return false;
+  if (resignedIds && resignedIds.has && resignedIds.has(emp.employeeId)) return false;
+  return true;
+};
 const LocationViewButton = ({ location }) => {
   const [displayAddress, setDisplayAddress] = useState('');
   
@@ -306,7 +315,7 @@ const PerformanceModal = ({ isOpen, onClose, allEmployees, shiftsMap, holidays, 
     const fetchPerformanceData = async () => {
       setLoading(true);
       try {
-        const activeEmps = allEmployees.filter(e => e.isActive !== false);
+        const activeEmps = allEmployees.filter(isEmployeeActive);
         const empIds = activeEmps.map(e => e.employeeId);
         
         if (empIds.length === 0) {
@@ -1082,6 +1091,7 @@ const AdminAttendance = () => {
   const [loading, setLoading] = useState(true);
 
   const [allEmployees, setAllEmployees] = useState([]);
+  const [resignedEmployeeIds, setResignedEmployeeIds] = useState(new Set());
   const [employeesLoading, setEmployeesLoading] = useState(true);
 
   const [summaryStartDate, setSummaryStartDate] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; });
@@ -1199,6 +1209,28 @@ const AdminAttendance = () => {
     }
   }, []);
 
+  const fetchResignations = useCallback(async () => {
+    try {
+      const { data } = await api.get("/api/resignations/admin/all");
+      if (Array.isArray(data)) {
+        const ids = new Set();
+        const now = new Date();
+        data.forEach(r => {
+          if (!r.employeeId) return;
+          const isCompletedOrExit = r.status === "Completed" || r.status === "Exit Formalities";
+          const isImmediate = r.status === "Approved" && r.noticePeriodType === "Immediate";
+          const isNoticeEnded = r.status === "Approved" && r.noticePeriodEndDate && new Date(r.noticePeriodEndDate) <= now;
+          if (isCompletedOrExit || isImmediate || isNoticeEnded) {
+            ids.add(r.employeeId);
+          }
+        });
+        setResignedEmployeeIds(ids);
+      }
+    } catch (e) {
+      // Ignored safely if user does not have permission or endpoint fails
+    }
+  }, []);
+
   const handlePunchOutRequestAction = async (requestId, status) => {
     setRequestActionLoading(true);
     try {
@@ -1248,10 +1280,10 @@ const AdminAttendance = () => {
         completed: data.completedCount,
         onBreak: data.onBreakCount,
         presentIds: data.presentIds,
-        absent: allEmployees.filter(e => e.isActive !== false && !data.presentIds.includes(e.employeeId)).length
+        absent: allEmployees.filter(e => isEmployeeActive(e, resignedEmployeeIds) && !data.presentIds.includes(e.employeeId)).length
       });
     } catch (err) { console.error(err); }
-  }, [allEmployees]);
+  }, [allEmployees, resignedEmployeeIds]);
 
   // Paginated daily log — backend scoped by adminId
   const fetchDailyData = useCallback(async () => {
@@ -1264,14 +1296,14 @@ const AdminAttendance = () => {
     finally { setLoading(false); }
   }, [startDate, endDate, dailyCurrentPage, dailyItemsPerPage, dailySearchTerm]);
 
-  useEffect(() => { fetchShifts(); fetchHolidays(); fetchEmployeeWorkModes(); fetchAllEmployees(); fetchOvertimeData(); fetchPunchOutRequests(); }, [fetchPunchOutRequests, fetchEmployeeWorkModes, fetchHolidays, fetchShifts, fetchAllEmployees, fetchOvertimeData]);
+  useEffect(() => { fetchShifts(); fetchHolidays(); fetchEmployeeWorkModes(); fetchAllEmployees(); fetchOvertimeData(); fetchPunchOutRequests(); fetchResignations(); }, [fetchPunchOutRequests, fetchEmployeeWorkModes, fetchHolidays, fetchShifts, fetchAllEmployees, fetchOvertimeData, fetchResignations]);
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => { fetchDailyData(); }, 500);
     return () => clearTimeout(delayDebounceFn);
   }, [fetchDailyData]);
 
-  useEffect(() => { if (allEmployees.length > 0) fetchDailyCounts(startDate); }, [startDate, fetchDailyCounts, allEmployees]);
+  useEffect(() => { if (allEmployees.length > 0) fetchDailyCounts(startDate); }, [startDate, fetchDailyCounts, allEmployees, resignedEmployeeIds]);
 
   useEffect(() => {
     const socket = io(SOCKET_URL, { transports: ["polling", "websocket"] });
@@ -1332,7 +1364,7 @@ const AdminAttendance = () => {
   // Summary Pagination Logic (fixed loop & flicker)
   // ==========================================
   const paginatedEmployeesForSummary = useMemo(() => {
-    let activeEmployees = allEmployees.filter(e => e.isActive !== false);
+    let activeEmployees = allEmployees.filter(e => isEmployeeActive(e, resignedEmployeeIds));
     if (summarySearchTerm) {
       const lowerSearch = summarySearchTerm.toLowerCase();
       activeEmployees = activeEmployees.filter(item =>
@@ -1341,7 +1373,7 @@ const AdminAttendance = () => {
       );
     }
     return activeEmployees;
-  }, [allEmployees, summarySearchTerm]);
+  }, [allEmployees, summarySearchTerm, resignedEmployeeIds]);
 
   // Use a stable primitive string dep to prevent infinite loops
   const currentEmpIdsStr = JSON.stringify(paginatedEmployeesForSummary.map(e => e.employeeId));
@@ -1514,7 +1546,7 @@ const AdminAttendance = () => {
 
   const exportSummaryToExcel = async () => {
     try {
-      const activeEmps = allEmployees.filter(e => e.isActive !== false);
+      const activeEmps = allEmployees.filter(e => isEmployeeActive(e, resignedEmployeeIds));
       const ids = activeEmps.map(e => e.employeeId);
       const { data } = await api.post(`/api/attendance/admin/date-range-for-employees`, { start: summaryStartDate, end: summaryEndDate, employeeIds: ids });
       const attendanceMap = new Map();
@@ -1571,7 +1603,7 @@ const AdminAttendance = () => {
 
   const handleOpenStatusModal = async (type) => {
     if (type === 'ABSENT') {
-      const absentList = allEmployees.filter(e => e.isActive !== false && !dailyCounts.presentIds.includes(e.employeeId));
+      const absentList = allEmployees.filter(e => isEmployeeActive(e, resignedEmployeeIds) && !dailyCounts.presentIds.includes(e.employeeId));
       setStatusListModal({ isOpen: true, title: "Login Required", employees: absentList, loading: false });
     } else {
       setStatusListModal({ isOpen: true, title: "Loading...", employees: [], loading: true });

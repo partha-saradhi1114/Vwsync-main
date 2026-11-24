@@ -206,6 +206,8 @@ const adminLeaveNotificationEmail = ({ name, employeeId, email, leaveType, from,
 /* =========================================================================
    1. SHARED SERVICE: APPLY LEAVE
 ========================================================================= */
+const inFlightLeaveSubmissions = new Set();
+
 export const serviceApplyLeave = async ({ loggedUser, from, to, reason, leaveType, leaveDayType, halfDaySession = "", io = null }) => {
   if (!from || !to || !reason || !leaveType || !leaveDayType) {
     throw new Error("Missing required fields (from, to, reason, leaveType, leaveDayType).");
@@ -230,6 +232,36 @@ export const serviceApplyLeave = async ({ loggedUser, from, to, reason, leaveTyp
   }
 
   const requesterType = isSupportAdmin ? "support-admin" : "employee";
+
+  // Prevent concurrent rapid submissions for the exact same leave request
+  const submissionKey = `${adminIdForLeave}_${requesterKey}_${from}_${to}_${leaveType}_${halfDaySession}`;
+  if (inFlightLeaveSubmissions.has(submissionKey)) {
+    throw new Error(
+      "This leave request has already been submitted. Please check your leave history."
+    );
+  }
+  inFlightLeaveSubmissions.add(submissionKey);
+
+  try {
+    // Check whether the same pending leave request already exists
+    const existingLeave = await LeaveRequest.findOne({
+      adminId: adminIdForLeave,
+      employeeId: requesterKey,
+      requesterType,
+      from,
+      to,
+      leaveType,
+      leaveDayType,
+      halfDaySession,
+      status: "Pending",
+    });
+
+    if (existingLeave) {
+      throw new Error(
+        "This leave request has already been submitted. Please check your leave history."
+      );
+    }
+
   const requesterName = loggedUser.name || `${loggedUser.firstName || ""} ${loggedUser.lastName || ""}`.trim() || loggedUser.email || "Employee";
 
   const monthKey = from.slice(0, 7);
@@ -328,7 +360,12 @@ export const serviceApplyLeave = async ({ loggedUser, from, to, reason, leaveTyp
     }
   }
 
-  return newLeave;
+    return newLeave;
+  } finally {
+    setTimeout(() => {
+      inFlightLeaveSubmissions.delete(submissionKey);
+    }, 4000);
+  }
 };
 
 /* =========================================================================

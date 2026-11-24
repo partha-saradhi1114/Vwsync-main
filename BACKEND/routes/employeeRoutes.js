@@ -21,6 +21,7 @@ import { onlyAdmin } from "../middleware/roleMiddleware.js";
 import Admin from "../models/adminModel.js";
 import PlanSetting from "../models/planSettingModel.js";
 import SupportAdmin from "../models/supportAdminModel.js";
+import Resignation from "../models/Resignation.js";
 
 const router = express.Router();
 
@@ -516,10 +517,52 @@ router.post("/", protect, onlyAdmin, async (req, res) => {
 // GET all employees (Scoped)
 router.get("/", protect, async (req, res) => {
   try {
+    const adminId =
+      req.user.role === "support-admin"
+        ? (req.user.adminId || req.user._id)
+        : req.user._id;
+
     const query =
       (req.user.role === "admin" || req.user.role === "support-admin")
-        ? { adminId: req.user._id }
+        ? { adminId }
         : { company: req.user.company };
+
+    // Auto-sync: If any employee has a completed resignation, exit formalities,
+    // or an approved resignation with immediate release / ended notice period,
+    // ensure their employee profile is deactivated so they do not show up as active or in attendance login required.
+    try {
+      const now = new Date();
+      const resignationFilter = {
+        $or: [
+          { status: { $in: ["Completed", "Exit Formalities"] } },
+          { status: "Approved", noticePeriodType: "Immediate" },
+          { status: "Approved", noticePeriodEndDate: { $lte: now } }
+        ]
+      };
+      if (req.user.role === "admin" || req.user.role === "support-admin") {
+        resignationFilter.adminId = adminId;
+      }
+
+      const resignedList = await Resignation.find(resignationFilter).select("employeeId status");
+      if (resignedList && resignedList.length > 0) {
+        const resignedEmpIds = resignedList.map(r => r.employeeId).filter(Boolean);
+        if (resignedEmpIds.length > 0) {
+          await Employee.updateMany(
+            { employeeId: { $in: resignedEmpIds }, isActive: true },
+            {
+              $set: {
+                isActive: false,
+                status: "Inactive",
+                loginEnabled: false,
+                deactivationReason: "Resigned"
+              }
+            }
+          );
+        }
+      }
+    } catch (syncErr) {
+      console.error("Auto-sync resigned employees error in GET /api/employees:", syncErr.message);
+    }
 
     const employees = await Employee.find(query);
     res.status(200).json(employees);

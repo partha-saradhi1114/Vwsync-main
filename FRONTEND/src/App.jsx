@@ -62,6 +62,8 @@ import CurrentEmployeeNotificationProvider from "./EmployeeContext/CurrentEmploy
 import { EmployeeProvider } from "./context/EmployeeProvider";
 
 // Employee pages (Lazy Loaded for Performance)
+
+import DuplicateLeaveSubmitted from "./EmployeePages/DuplicateLeaveSubmitted";
 const EmployeeDashboard = lazy(() => import("./EmployeePages/EmployeeDashboard"));
 const CurrentEmployeeAttendanceProfile = lazy(() => import("./EmployeePages/CurrentEmployeeAttendanceProfile"));
 const LeaveWithModal = lazy(() => import("./EmployeePages/EmployeeLeavemanagement"));
@@ -414,6 +416,15 @@ function App() {
         <Route path="/employee/resignation" element={<EmployeeResignation />} />
         <Route path="/employee/expenses" element={<AddExpense />} />
       </Route>
+       {/* DUPLICATE LEAVE SUBMISSION PAGE */}
+      <Route
+        path="/employee/leave-already-submitted"
+        element={
+          <ProtectedRoute role="employee">
+            <DuplicateLeaveSubmitted />
+          </ProtectedRoute>
+        }
+      />
     </Routes>
   );
 }

@@ -521,7 +521,7 @@ router.get("/", protect, async (req, res) => {
         ? { adminId: req.user._id }
         : { company: req.user.company };
 
-    const employees = await Employee.find(query);
+    const employees = await Employee.find(query).lean();
     res.status(200).json(employees);
   } catch (err) {
     res.status(500).json({ error: err.message });

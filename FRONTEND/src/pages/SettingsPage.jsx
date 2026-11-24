@@ -140,7 +140,7 @@ const DepartmentSettings = () => {
     window.addEventListener("adminActionExecuted", handleRealtimeSync);
 
     const SOCKET_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
-    const s = io(SOCKET_URL, { transports: ["polling", "websocket"] });
+    const s = io(SOCKET_URL, { transports: ["websocket", "polling"] });
     s.on("hrmsShiftUpdated", handleRealtimeSync);
     s.on("shift:updated", handleRealtimeSync);
 

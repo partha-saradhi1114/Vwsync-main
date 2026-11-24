@@ -26,6 +26,7 @@ import {
   CalendarPlus,
   Receipt,
   LocateFixed,
+  MessageSquare,
 } from "lucide-react";
 
 import { io } from "socket.io-client";
@@ -113,6 +114,7 @@ const SidebarSupportAdmin = ({ mobileOpen, setMobileOpen }) => {
 
   const [socket, setSocket] = useState(null);
   const [unreadNoticeCount, setUnreadNoticeCount] = useState(0);
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const [serverReadState, setServerReadState] = useState({});
 
   const prevPendingLeaves = useRef(0);
@@ -175,11 +177,12 @@ const SidebarSupportAdmin = ({ mobileOpen, setMobileOpen }) => {
           alwaysAllowed: true,
         },
         {
-          to: "/support-admin/chatting",
-          route: "/support-admin/chatting",
-          label: "Connect",
-          icon: Users,
+          to: "/support-admin/conversations",
+          route: "/support-admin/conversations",
+          label: "ChatHub",
+          icon: MessageSquare,
           alwaysAllowed: true,
+          isChat: true,
         },
       ],
     },
@@ -495,11 +498,9 @@ const SidebarSupportAdmin = ({ mobileOpen, setMobileOpen }) => {
 
   const fetchAttendanceRequests = useCallback(async () => {
     try {
-      const { data } = await api.get("/api/attendance/admin/status-correction-requests");
-      const count1 = (data?.data || []).filter((r) => isPending(r.status)).length;
       const res2 = await api.get("/api/attendance/admin/pending-corrections");
       const count2 = (res2?.data?.data || []).length;
-      setAttendanceRequestsCount(count1 + count2);
+      setAttendanceRequestsCount(count2);
     } catch (error) {
       console.error("Error fetching attendance requests:", error);
     }
@@ -606,8 +607,30 @@ const SidebarSupportAdmin = ({ mobileOpen, setMobileOpen }) => {
     return () => clearInterval(interval);
   }, [fetchLeaveRequests, fetchOvertimeRequests, fetchLateRequests, fetchAttendanceRequests, fetchFullDayRequests, fetchAndCalculateUnreadNotices, fetchWorkModeRequests, fetchPunchOutRequests]);
 
+  const fetchChatUnreadCount = useCallback(async () => {
+    try {
+      const { data } = await api.get("/api/chat/unread/count");
+      if (typeof data?.count === "number") {
+        setChatUnreadCount(data.count);
+      }
+    } catch (_) {}
+  }, []);
+
   useEffect(() => {
-    const s = io(SOCKET_URL, { transports: ["polling", "websocket"] });
+    fetchChatUnreadCount();
+    const interval = setInterval(fetchChatUnreadCount, 6000);
+    const handleUpdate = () => {
+      fetchChatUnreadCount();
+    };
+    window.addEventListener("chatUnreadUpdated", handleUpdate);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("chatUnreadUpdated", handleUpdate);
+    };
+  }, [fetchChatUnreadCount]);
+
+  useEffect(() => {
+    const s = io(SOCKET_URL, { transports: ["websocket", "polling"] });
     s.on("connect", () => {
       try {
         const raw = sessionStorage.getItem("hrmsUser");
@@ -638,6 +661,8 @@ const SidebarSupportAdmin = ({ mobileOpen, setMobileOpen }) => {
     socket.on("workMode:updated", fetchWorkModeRequests);
     socket.on("punchout:new", fetchPunchOutRequests);
     socket.on("punchout:updated", fetchPunchOutRequests);
+    socket.on("receive_message", fetchChatUnreadCount);
+    socket.on("group_activity", fetchChatUnreadCount);
 
     const handleNewReply = (data) => {
       if (data.sentBy === "Employee") {
@@ -665,8 +690,10 @@ const SidebarSupportAdmin = ({ mobileOpen, setMobileOpen }) => {
       socket.off("punchout:updated", fetchPunchOutRequests);
       socket.off("notice:reply:new", handleNewReply);
       socket.off("notice:updated", handleNoticeUpdate);
+      socket.off("receive_message", fetchChatUnreadCount);
+      socket.off("group_activity", fetchChatUnreadCount);
     };
-  }, [socket, fetchLeaveRequests, fetchOvertimeRequests, fetchLateRequests, fetchAttendanceRequests, fetchAndCalculateUnreadNotices, fetchFullDayRequests, fetchWorkModeRequests, fetchPunchOutRequests]);
+  }, [socket, fetchLeaveRequests, fetchOvertimeRequests, fetchLateRequests, fetchAttendanceRequests, fetchAndCalculateUnreadNotices, fetchFullDayRequests, fetchWorkModeRequests, fetchPunchOutRequests, fetchChatUnreadCount]);
 
   const getBadgeCount = (link) => {
     if (link.isLeave) return pendingLeaves;
@@ -676,14 +703,16 @@ const SidebarSupportAdmin = ({ mobileOpen, setMobileOpen }) => {
     if (link.isWorkModeRequests) return workModeRequestsCount;
     if (link.isAttendanceRequests) return attendanceRequestsCount;
     if (link.isNotice && !tempHideNoticeBadge) return unreadNoticeCount;
+    if (link.isChat) return chatUnreadCount;
     return 0;
   };
 
   const renderBadge = (link) => {
     const count = getBadgeCount(link);
     if (!count) return null;
+    const badgeColor = link.isChat ? "bg-blue-600" : "bg-red-500";
     return (
-      <span className="flex items-center justify-center ml-auto h-5 min-w-5 px-1 bg-red-500 text-white text-[10px] font-bold rounded-full">
+      <span className={`flex items-center justify-center ml-auto h-5 min-w-5 px-1 ${badgeColor} text-white text-[10px] font-bold rounded-full`}>
         {count > 99 ? "99+" : count}
       </span>
     );
@@ -820,7 +849,12 @@ const SidebarSupportAdmin = ({ mobileOpen, setMobileOpen }) => {
                                 `}
                                 title={collapsed && !isMobile ? link.label : ""}
                               >
-                                <Icon size={20} className="shrink-0" />
+                                <div className="relative">
+                                  <Icon size={20} className="shrink-0" />
+                                  {collapsed && !isMobile && link.isChat && chatUnreadCount > 0 && (
+                                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border border-slate-900" />
+                                  )}
+                                </div>
                                 {(!collapsed || isMobile) && (
                                   <>
                                     <span className="text-[14px] font-medium truncate">{link.label}</span>

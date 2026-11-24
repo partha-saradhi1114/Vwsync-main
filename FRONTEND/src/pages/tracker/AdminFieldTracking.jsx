@@ -771,7 +771,7 @@ const AdminFieldTracking = () => {
     const user = getCurrentUser();
     if (!user?._id) return undefined;
 
-    const socket = io(SOCKET_URL, { transports: ["polling", "websocket"] });
+    const socket = io(SOCKET_URL, { transports: ["websocket", "polling"] });
 
     socket.on("connect", () => {
       socket.emit("authenticate", user._id);

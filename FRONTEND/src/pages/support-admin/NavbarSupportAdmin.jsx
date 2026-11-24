@@ -22,7 +22,7 @@ import {
 import { baseURL } from "../../api";
 
 const socket = io(baseURL, {
-  transports: ["polling", "websocket"],
+  transports: ["websocket", "polling"],
 });
 
 const NavbarSupportAdmin = ({ currentTheme, onThemeChange, setMobileOpen }) => {
@@ -200,7 +200,11 @@ const NavbarSupportAdmin = ({ currentTheme, onThemeChange, setMobileOpen }) => {
                     recentNotifications.map((n) => (
                       <div
                         key={n._id}
-                        onClick={() => { markAsRead(n._id); setBellOpen(false); }}
+                        onClick={() => {
+                          markAsRead(n._id);
+                          if (n.type === "notice") navigate("/support-admin/notices");
+                          setBellOpen(false);
+                        }}
                         className={`px-4 py-3 border-b border-slate-50 cursor-pointer hover:bg-slate-50 transition-colors flex gap-3 ${!n.isRead ? "bg-indigo-50/30" : ""}`}
                       >
                         <div className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${!n.isRead ? "bg-indigo-500" : "bg-slate-200"}`} />

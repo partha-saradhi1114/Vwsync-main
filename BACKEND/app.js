@@ -8,6 +8,8 @@ import http from "http";
 import path from "path";
 import { Server } from "socket.io";
 import Employee from "./models/employeeModel.js";
+import SupportAdmin from "./models/supportAdminModel.js";
+import Admin from "./models/adminModel.js";
 import { recordFieldWorkLocationForEmployee } from "./controllers/fieldTrackingController.js";
 
 /*   sagar ==================== ROUTE IMPORTS ==================== */
@@ -148,6 +150,7 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 /* ==================== SOCKET.IO ==================== */
 const userSocketMap = new Map();
+const onlineUsersMap = new Map();
 
 const io = new Server(server, {
   cors: {
@@ -163,28 +166,89 @@ const io = new Server(server, {
     credentials: true,
   },
 
-  transports: ["polling", "websocket"],
+  transports: ["websocket", "polling"],
   pingTimeout: 60000,
 });
 
 app.set("io", io);
 app.set("userSocketMap", userSocketMap);
+app.set("onlineUsersMap", onlineUsersMap);
 
 /* ==================== SOCKET CONNECTION ==================== */
 io.on("connection", (socket) => {
   console.log("yes Socket Connected:", socket.id);
 
-  socket.on("register", (userId) => {
-    if (userId) {
-      userSocketMap.set(userId.toString(), socket.id);
+  const handleUserConnect = (rawUserId) => {
+    if (!rawUserId) return;
+    let userId = rawUserId;
+    if (typeof rawUserId === "object" && rawUserId !== null) {
+      userId = rawUserId.actualId || rawUserId._id || rawUserId.id;
     }
+    if (!userId || userId === "admin") return;
+    const uid = userId.toString();
+    socket.userId = uid;
+    userSocketMap.set(uid, socket.id);
+    socket.join(`user_${uid}`);
+
+    if (!onlineUsersMap.has(uid)) {
+      onlineUsersMap.set(uid, new Set());
+    }
+    const userSockets = onlineUsersMap.get(uid);
+    const wasOffline = userSockets.size === 0;
+    userSockets.add(socket.id);
+
+    if (wasOffline) {
+      io.emit("presence:status", { userId: uid, isOnline: true });
+    }
+  };
+
+  socket.on("register", (userId) => {
+    handleUserConnect(userId);
   });
 
   socket.on("authenticate", (userId) => {
-    if (!userId) return;
+    handleUserConnect(userId);
+  });
 
-    socket.userId = userId.toString();
-    socket.join(`user_${userId.toString()}`);
+  socket.on("presence:get_online", (ack) => {
+    if (typeof ack === "function") {
+      const activeIds = Array.from(onlineUsersMap.keys()).filter(
+        (id) => (onlineUsersMap.get(id)?.size || 0) > 0
+      );
+      ack(activeIds);
+    }
+  });
+
+  // Group Socket Rooms & Typing
+  socket.on("join_group", (groupId) => {
+    if (groupId) {
+      socket.join(`group_${groupId.toString()}`);
+    }
+  });
+
+  socket.on("leave_group", (groupId) => {
+    if (groupId) {
+      socket.leave(`group_${groupId.toString()}`);
+    }
+  });
+
+  socket.on("group_typing_start", ({ groupId, senderId, senderName }) => {
+    if (groupId) {
+      socket.to(`group_${groupId.toString()}`).emit("group_user_typing", {
+        groupId: groupId.toString(),
+        userId: senderId,
+        userName: senderName,
+      });
+    }
+  });
+
+  socket.on("group_typing_stop", ({ groupId, senderId }) => {
+    if (groupId) {
+      socket.to(`group_${groupId.toString()}`).emit("group_user_stopped_typing", {
+        groupId: groupId.toString(),
+        userId: senderId,
+      });
+    }
   });
 
   socket.on("fieldTracking:postLocation", async (payload = {}, ack) => {
@@ -240,6 +304,18 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("typing_start", ({ receiverId, senderId, senderName }) => {
+    if (receiverId) {
+      io.to(`user_${receiverId.toString()}`).emit("user_typing", { userId: senderId, userName: senderName });
+    }
+  });
+
+  socket.on("typing_stop", ({ receiverId, senderId }) => {
+    if (receiverId) {
+      io.to(`user_${receiverId.toString()}`).emit("user_stopped_typing", { userId: senderId });
+    }
+  });
+
   socket.on("disconnect", () => {
     console.log("âŒ Socket Disconnected:", socket.id);
 
@@ -247,6 +323,35 @@ io.on("connection", (socket) => {
       if (socketId === socket.id) {
         userSocketMap.delete(userId);
         break;
+      }
+    }
+
+    if (socket.userId && onlineUsersMap.has(socket.userId)) {
+      const userSockets = onlineUsersMap.get(socket.userId);
+      userSockets.delete(socket.id);
+      if (userSockets.size === 0) {
+        onlineUsersMap.delete(socket.userId);
+        const lastSeen = new Date();
+        io.emit("presence:status", {
+          userId: socket.userId,
+          isOnline: false,
+          lastSeen,
+        });
+
+        const uid = socket.userId;
+        (async () => {
+          try {
+            const emp = await Employee.findByIdAndUpdate(uid, { lastSeen }, { new: true });
+            if (!emp) {
+              const sa = await SupportAdmin.findByIdAndUpdate(uid, { lastSeen }, { new: true });
+              if (!sa) {
+                await Admin.findByIdAndUpdate(uid, { lastSeen });
+              }
+            }
+          } catch (err) {
+            console.error("Error updating lastSeen on disconnect:", err.message);
+          }
+        })();
       }
     }
   });

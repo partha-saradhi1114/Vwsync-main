@@ -386,7 +386,7 @@ const NavbarAdminNav = ({ theme, inline = false }) => {
   }, [fetchLeaveRequests, fetchOvertimeRequests, fetchLateRequests, fetchAttendanceRequests, fetchFullDayRequests, fetchAndCalculateUnreadNotices, fetchWorkModeRequests]);
 
   useEffect(() => {
-    const s = io(SOCKET_URL, { transports: ["polling", "websocket"] });
+    const s = io(SOCKET_URL, { transports: ["websocket", "polling"] });
     s.on("connect", () => {
       try {
         const raw = sessionStorage.getItem("hrmsUser");

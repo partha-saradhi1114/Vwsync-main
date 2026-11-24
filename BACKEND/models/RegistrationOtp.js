@@ -20,8 +20,5 @@ const registrationOtpSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Define a secondary index explicitly just in case `expires` is not processed fully
-registrationOtpSchema.index({ createdAt: 1 }, { expireAfterSeconds: 600 });
-
 const RegistrationOtp = mongoose.model("RegistrationOtp", registrationOtpSchema);
 export default RegistrationOtp;

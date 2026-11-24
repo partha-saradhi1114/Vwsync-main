@@ -1,8 +1,8 @@
 // src/EmployeeContext/CurrentEmployeeNotificationProvider.jsx
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { CurrentEmployeeNotificationContext } from "./CurrentEmployeeNotificationContext";
-import {
+import api, {
   getNotifications,
   getNotices,
   markNotificationAsRead,
@@ -62,7 +62,10 @@ const CurrentEmployeeNotificationProvider = ({ children }) => {
       const userId = getUserId();
 
       // Filter to only this employee's own notifications
-      const filtered = all.filter((n) => String(n.userId) === String(userId));
+      const filtered = (Array.isArray(all) ? all : []).filter((n) => {
+        const targetId = String(n.userId?._id || n.userId || "");
+        return targetId === String(userId) || n.role === "employee" || n.role === "all";
+      });
       filtered.sort(
         (a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt)
       );
@@ -78,26 +81,80 @@ const CurrentEmployeeNotificationProvider = ({ children }) => {
   const loadNotices = useCallback(async () => {
     try {
       const list = await getNotices();
-      const readIds = loadReadNoticeIds();
-      const mapped = list.map((n) => ({
-        _id: n._id,
-        title: n.title,
-        message: n.title,
-        date: n.date,
-        isRead: readIds.includes(n._id),
-      }));
-      mapped.sort((a, b) => new Date(b.date) - new Date(a.date));
+      const currentId = getUserId();
+      if (!Array.isArray(list) || !currentId) return;
+
+      const validNotices = list.filter((n) => {
+        if (!n?.title) return false;
+        if (typeof n.title === "string" && n.title.startsWith("__SYSTEM_")) return false;
+        if (Array.isArray(n.recipients) && n.recipients.length > 0) {
+          const recIds = n.recipients.map((r) =>
+            typeof r === "object" && r?._id ? String(r._id) : String(r)
+          );
+          if (!recIds.includes(String(currentId))) return false;
+        }
+        return true;
+      });
+
+      const mapped = validNotices.map((n) => {
+        const isRead = Array.isArray(n.readBy) && n.readBy.some((record) => {
+          const rId = typeof record.employeeId === "object" ? record.employeeId?._id : record.employeeId;
+          return String(rId) === String(currentId);
+        });
+
+        const authorName = n.creatorModel === "Admin"
+          ? "Admin"
+          : (n.createdBy?.name || "Colleague");
+
+        return {
+          _id: `notice-doc-${n._id}`,
+          noticeId: String(n._id),
+          title: "Notice Board Announcement",
+          message: `${authorName} posted an announcement: "${n.title}"`,
+          type: "notice",
+          date: n.date || n.createdAt,
+          isRead: isRead,
+          isNoticeDoc: true,
+        };
+      });
+
+      mapped.sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
       setNotices(mapped);
       setUnreadNotices(mapped.filter((n) => !n.isRead).length);
     } catch (err) {
       console.error("❌ Error loading notices:", err);
     }
-  }, []);
+  }, [loggedUser]);
+
+  // ─── Combined Notifications (DB Notifications + Notice Announcements) ────
+  const combinedNotifications = useMemo(() => {
+    const combined = [...notifications];
+    for (const n of notices) {
+      const alreadyInNotifications = combined.some((dbN) =>
+        dbN.type === "notice" && (
+          String(dbN.noticeId) === String(n.noticeId) ||
+          (n.title && (dbN.message?.includes(n.title) || dbN.title?.includes(n.title)))
+        )
+      );
+      if (!alreadyInNotifications) {
+        combined.push(n);
+      }
+    }
+    combined.sort(
+      (a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt)
+    );
+    return combined;
+  }, [notifications, notices]);
+
+  const totalUnreadCount = combinedNotifications.filter((n) => !n.isRead).length;
 
   // ─── Mark all notices read ────────────────────────────────────────────────
   const markAllNoticesRead = () => {
-    const allIds = notices.map((n) => n._id);
-    saveReadNoticeIds(allIds);
+    for (const n of notices) {
+      if (n.noticeId) {
+        api.put(`/api/notices/${n.noticeId}/read`).catch(() => {});
+      }
+    }
     setNotices((prev) => prev.map((n) => ({ ...n, isRead: true })));
     setUnreadNotices(0);
   };
@@ -106,7 +163,7 @@ const CurrentEmployeeNotificationProvider = ({ children }) => {
   useEffect(() => {
     if (!loggedUser?._id) return;
 
-    const socket = io(SOCKET_URL, { transports: ["polling", "websocket"] });
+    const socket = io(SOCKET_URL, { transports: ["websocket", "polling"] });
     socketRef.current = socket;
 
     socket.on("connect", () => {
@@ -170,65 +227,110 @@ const CurrentEmployeeNotificationProvider = ({ children }) => {
       loadNotifications();
     });
 
+    socket.on("newNotice", () => {
+      console.log("📢 New notice broadcast received via socket");
+      loadNotices();
+      loadNotifications();
+    });
+
+    socket.on("notice:updated", () => {
+      console.log("📢 Notice updated broadcast received via socket");
+      loadNotices();
+      loadNotifications();
+    });
+
+    socket.on("receive_message", () => {
+      window.dispatchEvent(new Event("chatUnreadUpdated"));
+    });
+
+    socket.on("group_activity", () => {
+      window.dispatchEvent(new Event("chatUnreadUpdated"));
+    });
+
     socket.on("reconnect", () => {
       if (loggedUser?._id) socket.emit("authenticate", loggedUser._id);
     });
 
     return () => socket.disconnect();
-  }, [loggedUser, sound]);
+  }, [loggedUser, sound, loadNotices, loadNotifications]);
 
   // ─── Mark single notification as read ────────────────────────────────────
   const markAsRead = async (id) => {
     try {
-      await markNotificationAsRead(id);
-      setNotifications((prev) => {
-        const updated = prev.map((n) =>
-          String(n._id) === String(id) ? { ...n, isRead: true } : n
+      const strId = String(id);
+      const noticeItem = notices.find(
+        (n) => String(n._id) === strId || String(n.noticeId) === strId
+      );
+
+      if (noticeItem) {
+        await api.put(`/api/notices/${noticeItem.noticeId}/read`).catch(() => {});
+        setNotices((prev) =>
+          prev.map((n) =>
+            String(n._id) === strId || String(n.noticeId) === strId
+              ? { ...n, isRead: true }
+              : n
+          )
         );
-        setUnreadNotifications(updated.filter((n) => !n.isRead).length);
-        return updated;
-      });
+      }
+
+      if (!strId.startsWith("notice-doc-")) {
+        await markNotificationAsRead(id).catch(() => {});
+      }
+
+      setNotifications((prev) =>
+        prev.map((n) => (String(n._id) === strId ? { ...n, isRead: true } : n))
+      );
     } catch (err) {
       console.error("❌ Failed to mark notification read:", err);
     }
   };
 
   // ─── Mark ALL notifications as read ──────────────────────────────────────
-  // ✅ BUG 2 FIX — guard: skip if nothing is unread
   const markAllAsRead = async () => {
-    const hasUnread = notifications.some((n) => !n.isRead);
+    const hasUnread = combinedNotifications.some((n) => !n.isRead);
     if (!hasUnread) {
       console.log("ℹ️ Employee: no unread notifications — skipping");
       return;
     }
     try {
-      await markAllNotificationsAsRead();
-      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-      setUnreadNotifications(0);
+      for (const n of notices) {
+        if (!n.isRead && n.noticeId) {
+          api.put(`/api/notices/${n.noticeId}/read`).catch(() => {});
+        }
+      }
+      setNotices((prev) => prev.map((n) => ({ ...n, isRead: true })));
+
+      const hasUnreadDb = notifications.some((n) => !n.isRead);
+      if (hasUnreadDb) {
+        await markAllNotificationsAsRead().catch(() => {});
+        setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      }
     } catch (err) {
       console.error("❌ Failed to mark all notifications read:", err);
     }
   };
 
   // ─── Clear ALL notifications from DB ─────────────────────────────────────
-  // ✅ BUG 1 FIX — permanently deletes so they never reappear
   const clearAll = async () => {
     try {
-      await deleteAllNotifications();
+      await deleteAllNotifications().catch(() => {});
+      for (const n of notices) {
+        if (!n.isRead && n.noticeId) {
+          api.put(`/api/notices/${n.noticeId}/read`).catch(() => {});
+        }
+      }
       setNotifications([]);
-      setUnreadNotifications(0);
+      setNotices([]);
     } catch (err) {
       console.error("❌ Failed to clear all notifications:", err);
     }
   };
 
-  // ─── Initial load ─────────────────────────────────────────────────────────
+  // ─── Initial load & Periodic Sync (15s interval matching Sidebar) ────────
   useEffect(() => {
     if (!loggedUser?._id) {
       setNotifications([]);
       setNotices([]);
-      setUnreadNotifications(0);
-      setUnreadNotices(0);
       setLoading(false);
       return;
     }
@@ -238,13 +340,20 @@ const CurrentEmployeeNotificationProvider = ({ children }) => {
       await loadNotices();
       setLoading(false);
     })();
+
+    const interval = setInterval(() => {
+      loadNotices();
+      loadNotifications();
+    }, 15000);
+
+    return () => clearInterval(interval);
   }, [loggedUser, loadNotifications, loadNotices]);
 
   return (
     <CurrentEmployeeNotificationContext.Provider
       value={{
-        notifications,
-        unreadNotifications,
+        notifications: combinedNotifications,
+        unreadNotifications: totalUnreadCount,
         notices,
         unreadNotices,
         loading,

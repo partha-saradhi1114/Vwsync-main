@@ -5,7 +5,8 @@ import { CurrentEmployeeNotificationContext } from "../EmployeeContext/CurrentEm
 import {
   FaBell, FaCheckCircle, FaTrash,
   FaExclamationCircle, FaArrowLeft, FaClock, FaInbox, FaCheck,
-  FaUserClock, FaUserMinus, FaSignOutAlt, FaStarHalfAlt, FaMapMarkerAlt
+  FaUserClock, FaUserMinus, FaSignOutAlt, FaStarHalfAlt, FaMapMarkerAlt,
+  FaBullhorn
 } from "react-icons/fa";  
 
 // sessionStorage keys for employee read & hidden states
@@ -72,15 +73,8 @@ const EmployeeNotifications = () => {
     const readSystemIds = getReadSystemIds();
     const hiddenIds = getHiddenIds();
 
-    // Filter out notice-type messages (shown in Notices page instead)
-    const filtered = notifications.filter((n) => {
-      const msg = n.message?.toLowerCase() || "";
-      return (
-        n.type !== "notice" &&
-        n.category !== "notice" &&
-        !msg.includes("notice")
-      );
-    });
+    // Include all notifications (notices, leaves, attendance, etc.)
+    const filtered = notifications || [];
 
     // Apply local read state for any items not tracked in DB
     const withReadState = filtered.map((n) => ({
@@ -100,10 +94,18 @@ const EmployeeNotifications = () => {
     buildLocalList();
   }, [buildLocalList]);
 
-  // --- Mark single notification as read ---
+  // --- Mark single notification as read & handle navigation ---
   const handleMarkAsRead = (n) => {
     markSystemAsRead(String(n._id)); // local session state
     markAsRead(n._id);              // DB update
+  };
+
+  const handleNotificationClick = (n) => {
+    handleMarkAsRead(n);
+    const type = (n.type || "").toLowerCase();
+    if (type.includes("notice")) {
+      navigate("/employee/notices");
+    }
   };
 
   // --- Mark all as read ---
@@ -163,6 +165,9 @@ const EmployeeNotifications = () => {
     } else if (type.includes("attendance") || category.includes("attendance")) {
       borderAccent = isUnread ? "border-l-4 border-purple-500" : "border-l-4 border-slate-200";
       iconBg = isUnread ? "bg-purple-50 text-purple-600" : "bg-slate-100 text-slate-500";
+    } else if (type.includes("notice") || category.includes("notice")) {
+      borderAccent = isUnread ? "border-l-4 border-violet-500" : "border-l-4 border-slate-200";
+      iconBg = isUnread ? "bg-violet-50 text-violet-600" : "bg-slate-100 text-slate-500";
     }
 
     return { borderAccent, iconBg, cardBg };
@@ -179,6 +184,9 @@ const EmployeeNotifications = () => {
     }
     if (t.includes("attendance") || c.includes("attendance")) {
       return <FaUserClock className="text-purple-500" />;
+    }
+    if (t.includes("notice") || c.includes("notice")) {
+      return <FaBullhorn className="text-violet-500" />;
     }
     return <FaBell className="text-gray-500" />;
   };
@@ -291,7 +299,7 @@ const EmployeeNotifications = () => {
                 return (
                   <div
                     key={n._id}
-                    onClick={() => handleMarkAsRead(n)}
+                    onClick={() => handleNotificationClick(n)}
                     className={`group relative flex items-start gap-4 p-4 rounded-2xl border transition-all duration-300 ${styles.borderAccent} ${styles.cardBg} hover:shadow-md hover:border-slate-300 cursor-pointer`}
                   >
                     {/* Glowing Left Indicator */}

@@ -334,6 +334,22 @@ router.post("/apply", async (req, res) => {
     }
 
     // ============================================
+    // 🔹 DUPLICATE OT REQUEST CHECK
+    // ============================================
+    const existingOTForDate = await Overtime.findOne({
+      employeeId,
+      date,
+      status: { $in: ["PENDING", "APPROVED"] },
+    });
+    if (existingOTForDate) {
+      return res.status(400).json({ 
+        message: existingOTForDate.status === "APPROVED" 
+          ? "Overtime for this date has already been approved."
+          : "An overtime request for this date is already pending approval." 
+      });
+    }
+
+    // ============================================
     // 🔹 OT LIMIT VALIDATION (By Number of Requests)
     // ============================================
     const employee = await Employee.findOne({ employeeId });
@@ -421,7 +437,26 @@ router.post("/apply", async (req, res) => {
 router.get("/all", onlyAdmin, async (req, res) => {
   try {
     const list = await Overtime.find({ adminId: req.user._id }).sort({ createdAt: -1 });
-    res.json(list);
+    // Deduplicate: if an employee has multiple requests for the same date, prefer APPROVED over PENDING
+    const seenMap = new Map();
+    const dedupedList = [];
+    for (const item of list) {
+      const key = `${item.employeeId}_${item.date}`;
+      if (!seenMap.has(key)) {
+        seenMap.set(key, item);
+        dedupedList.push(item);
+      } else {
+        const existing = seenMap.get(key);
+        if (item.status === "APPROVED" && existing.status !== "APPROVED") {
+          const index = dedupedList.indexOf(existing);
+          if (index !== -1) {
+            dedupedList[index] = item;
+            seenMap.set(key, item);
+          }
+        }
+      }
+    }
+    res.json(dedupedList);
   } catch (err) {
     console.error("OT ALL FETCH ERROR →", err);
     res.status(500).json({ message: "Server error" });
@@ -543,8 +578,27 @@ router.get("/:employeeId", async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    const list = await Overtime.find({ employeeId: req.params.employeeId }).sort({ date: -1 });
-    res.json(list);
+    const list = await Overtime.find({ employeeId: req.params.employeeId }).sort({ date: -1, createdAt: -1 });
+    // Deduplicate: if an employee has multiple requests for the same date, prefer APPROVED over PENDING
+    const seenMap = new Map();
+    const dedupedList = [];
+    for (const item of list) {
+      const key = item.date;
+      if (!seenMap.has(key)) {
+        seenMap.set(key, item);
+        dedupedList.push(item);
+      } else {
+        const existing = seenMap.get(key);
+        if (item.status === "APPROVED" && existing.status !== "APPROVED") {
+          const index = dedupedList.indexOf(existing);
+          if (index !== -1) {
+            dedupedList[index] = item;
+            seenMap.set(key, item);
+          }
+        }
+      }
+    }
+    res.json(dedupedList);
   } catch (err) {
     console.error("OT FETCH ERROR →", err);
     res.status(500).json({ message: "Server error" });

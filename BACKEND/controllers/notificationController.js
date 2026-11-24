@@ -19,17 +19,28 @@ const buildNotificationFilterForUser = (user) => {
       $or: [
         { userId: user._id, adminId: rootAdminId },
         { role: "admin",    adminId: rootAdminId },
+        { role: "all",      adminId: rootAdminId },
       ],
     };
   }
 
   // Employee sees:
   //  1. Direct messages addressed to them
-  //  2. Broadcasts scoped to their company
+  //  2. Broadcasts scoped to their company or admin
+  const employeeBroadcastOr = [];
+  if (user.company) {
+    employeeBroadcastOr.push({ role: "employee", companyId: user.company });
+    employeeBroadcastOr.push({ role: "all", companyId: user.company });
+  }
+  if (user.adminId) {
+    employeeBroadcastOr.push({ role: "employee", adminId: user.adminId });
+    employeeBroadcastOr.push({ role: "all", adminId: user.adminId });
+  }
+
   return {
     $or: [
       { userId: user._id },
-      { role: "employee", companyId: user.company },
+      ...employeeBroadcastOr,
     ],
   };
 };

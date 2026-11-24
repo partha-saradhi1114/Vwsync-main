@@ -68,7 +68,7 @@ export const NotificationProvider = ({ children }) => {
     if (!user?._id) return;
 
     const socket = io(SOCKET_URL, {
-      transports: ["polling", "websocket"],
+      transports: ["websocket", "polling"],
     });
     socketRef.current = socket;
 
@@ -82,17 +82,9 @@ export const NotificationProvider = ({ children }) => {
       }
     });
 
-    // Legacy notice handler (kept for backward compatibility)
-    socket.on("newNotice", (data) => {
-      const newNotification = {
-        _id: `notice-${Date.now()}`,
-        title: "New Notice Posted",
-        message: data.title,
-        type: "notice",
-        isRead: false,
-        date: new Date(),
-      };
-      setNotifications((prev) => [newNotification, ...prev]);
+    // Sync notices when a new notice is announced
+    socket.on("newNotice", () => {
+      fetchNotifications();
     });
 
     // ✅ FEATURE 2 — Real-time: only this user's room receives this event now

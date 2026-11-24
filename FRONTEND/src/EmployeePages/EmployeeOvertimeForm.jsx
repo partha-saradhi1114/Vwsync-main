@@ -15,6 +15,7 @@ const OvertimeWithModal = () => {
   const [form, setForm] = useState({ date: "", type: "INCENTIVE_OT", reason: "", hours: "", fromTime: "", toTime: "" });
   const [overtimeList, setOvertimeList] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [applyModalOpen, setApplyModalOpen] = useState(false);
   const [confirmCancelModal, setConfirmCancelModal] = useState(false);
@@ -62,6 +63,7 @@ const OvertimeWithModal = () => {
   // Submit OT
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setError("");
     setSuccess("");
 
@@ -76,6 +78,7 @@ const OvertimeWithModal = () => {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       await applyForOvertime({
         employeeId: user.employeeId,
@@ -97,6 +100,8 @@ const OvertimeWithModal = () => {
       console.error(err);
       const backendError = err.response?.data?.error || err.response?.data?.message || err.message;
       setError(`Failed to submit overtime: ${backendError}`);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -373,16 +378,25 @@ const OvertimeWithModal = () => {
                   <div className="flex gap-3 pt-2">
                     <button
                       type="button"
+                      disabled={isSubmitting}
                       onClick={() => setApplyModalOpen(false)}
-                      className="flex-1 py-4 rounded-2xl text-xs font-black uppercase text-gray-500 hover:bg-gray-50 transition-colors"
+                      className="flex-1 py-4 rounded-2xl text-xs font-black uppercase text-gray-500 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-100 transition-all active:scale-95"
+                      disabled={isSubmitting}
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-100 transition-all active:scale-95 flex items-center justify-center gap-2"
                     >
-                      Submit Request
+                      {isSubmitting ? (
+                        <>
+                          <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin inline-block"></span>
+                          Submitting...
+                        </>
+                      ) : (
+                        "Submit Request"
+                      )}
                     </button>
                   </div>
                 </form>

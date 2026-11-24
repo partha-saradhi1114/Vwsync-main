@@ -835,7 +835,7 @@ const EmployeeFieldWork = () => {
     const user = getCurrentUser();
     if (!user?._id) return undefined;
 
-    const socket = io(SOCKET_URL, { transports: ["polling", "websocket"] });
+    const socket = io(SOCKET_URL, { transports: ["websocket", "polling"] });
     socketRef.current = socket;
 
     socket.on("connect", () => {

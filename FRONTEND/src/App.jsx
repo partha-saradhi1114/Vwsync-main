@@ -270,6 +270,7 @@ function App() {
         
         {/* Support Admin Employee-Like Features */}
         <Route path="/support-admin/expenses" element={<AddExpense />} />
+        <Route path="/support-admin/conversations" element={<ConnectWithEmployee />} />
         <Route path="/support-admin/chatting" element={<ConnectWithEmployee />} />
         <Route path="/support-admin/requestworkmode" element={<EmployeeWorkModeRequest />} />
         <Route path="/support-admin/daily-work-tracker" element={<EmployeeWorkTracker />} />
@@ -357,6 +358,7 @@ function App() {
         <Route path="/admin/hr-checklist" element={<HRChecklist />} />
         <Route path="/admin/welcome-kits-management" element={<AdminWelcomeKits />} />
         <Route path="/admin/whats-new" element={<WhatsNew />} />
+        <Route path="/admin/conversations" element={<ConnectWithEmployee />} />
         <Route path="/support-admin/whats-new" element={<WhatsNew />} />
 
       </Route>
@@ -387,6 +389,7 @@ function App() {
         <Route path="/employee/new-attendence" element={<NewEmployeeAttendance />} />
         <Route path="/employee/rules" element={<EmployeeViewRules />} />
         <Route path="/employee/payslip" element={<EmployeePayslip />} />
+        <Route path="/employee/conversations" element={<ConnectWithEmployee />} />
         <Route path="/employee/chatting" element={<ConnectWithEmployee />} />
         <Route path="/employee/field-work" element={<EmployeeFieldWork />} />
         <Route path="/employee/daily-work-tracker" element={<EmployeeWorkTracker />} />

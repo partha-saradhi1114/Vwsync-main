@@ -882,7 +882,7 @@ const TodayOverview = () => {
     window.addEventListener("adminActionExecuted", handleSync);
 
     const SOCKET_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
-    const s = io(SOCKET_URL, { transports: ["polling", "websocket"] });
+    const s = io(SOCKET_URL, { transports: ["websocket", "polling"] });
     s.on("hrmsShiftUpdated", handleSync);
     s.on("shift:updated", handleSync);
     s.on("hrmsAttendanceUpdated", handleSync);

@@ -431,6 +431,13 @@ router.get('/admin/date-range', onlyAdmin, async (req, res) => {
       { $unwind: "$attendance" },
       { $match: { "attendance.date": { $gte: start, $lte: end } } },
       {
+        $group: {
+          _id: { employeeId: "$employeeId", date: "$attendance.date" },
+          doc: { $first: "$$ROOT" }
+        }
+      },
+      { $replaceRoot: { newRoot: "$doc" } },
+      {
         $project: {
           employeeId: 1,
           employeeName: 1,
@@ -484,6 +491,13 @@ router.get('/admin/daily-counts', onlyAdmin, async (req, res) => {
       { $match: { "attendance.date": date } },
       {
         $group: {
+          _id: { employeeId: "$employeeId", date: "$attendance.date" },
+          doc: { $first: "$$ROOT" }
+        }
+      },
+      { $replaceRoot: { newRoot: "$doc" } },
+      {
+        $group: {
           _id: null,
           workingCount: { $sum: { $cond: [{ $eq: ["$attendance.status", "WORKING"] }, 1, 0] } },
           completedCount: {
@@ -535,6 +549,17 @@ router.get('/admin/daily-log', onlyAdmin, async (req, res) => {
         }
       });
     }
+
+    // Deduplicate by employeeId and date so each employee has at most one row per date
+    pipeline.push({
+      $group: {
+        _id: { employeeId: "$employeeId", date: "$attendance.date" },
+        doc: { $first: "$$ROOT" }
+      }
+    });
+    pipeline.push({
+      $replaceRoot: { newRoot: "$doc" }
+    });
 
     pipeline.push({
       $project: {
@@ -922,6 +947,23 @@ router.post('/punch-in', async (req, res) => {
     let todayRecord = attendance.attendance.find(a => a.date === today);
 
     if (!todayRecord) {
+      // 🔒 Concurrency check: Ensure another concurrent request didn't already insert today's record
+      const freshDoc = await Attendance.findOne({
+        employeeId,
+        "attendance.date": today
+      }).lean();
+
+      if (freshDoc) {
+        const alreadyCreated = (freshDoc.attendance || []).find(a => a.date === today);
+        if (alreadyCreated) {
+          return res.status(200).json({
+            success: true,
+            message: "Punch-in already recorded",
+            data: alreadyCreated,
+          });
+        }
+      }
+
       const diffMin = getTimeDifferenceInMinutes(now, shift.shiftStartTime);
       const isLate = diffMin > shift.lateGracePeriod;
 
@@ -998,6 +1040,15 @@ router.post('/punch-in', async (req, res) => {
       todayRecord.status = "WORKING";
       todayRecord.punchOut = null;
     }
+
+    // Deduplicate any accidental duplicate dates in array before saving
+    const seenDates = new Set();
+    attendance.attendance = attendance.attendance.filter(rec => {
+      if (!rec || !rec.date) return true;
+      if (seenDates.has(rec.date)) return false;
+      seenDates.add(rec.date);
+      return true;
+    });
 
     await attendance.save();
     return res.json({
@@ -1747,7 +1798,13 @@ router.get('/:employeeId', protect, async (req, res) => {
     const record = await Attendance.findOne(query).select('attendance').lean();
     if (!record) return res.json({ success: true, data: [] });
 
-    const sorted = (record.attendance || []).sort((a, b) => new Date(b.date) - new Date(a.date));
+    const uniqueMap = new Map();
+    for (const item of (record.attendance || [])) {
+      if (item && item.date && !uniqueMap.has(item.date)) {
+        uniqueMap.set(item.date, item);
+      }
+    }
+    const sorted = Array.from(uniqueMap.values()).sort((a, b) => new Date(b.date) - new Date(a.date));
     res.json({ success: true, data: sorted });
   } catch (err) {
     res.status(500).json({ error: err.message });

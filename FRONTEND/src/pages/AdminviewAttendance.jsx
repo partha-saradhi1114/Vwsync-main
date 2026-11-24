@@ -1274,7 +1274,7 @@ const AdminAttendance = () => {
   useEffect(() => { if (allEmployees.length > 0) fetchDailyCounts(startDate); }, [startDate, fetchDailyCounts, allEmployees]);
 
   useEffect(() => {
-    const socket = io(SOCKET_URL, { transports: ["polling", "websocket"] });
+    const socket = io(SOCKET_URL, { transports: ["websocket", "polling"] });
     const refreshPunchOutRequests = async () => {
       await fetchPunchOutRequests();
       await fetchDailyData();

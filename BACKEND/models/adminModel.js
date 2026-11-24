@@ -109,6 +109,7 @@ const adminSchema = new mongoose.Schema(
     currentPeriodEnd: { type: Date, default: null },
     cancelAtPeriodEnd: { type: Boolean, default: false },
     lastPaymentAt: { type: Date, default: null },
+    lastSeen: { type: Date, default: Date.now },
   },
   { timestamps: true }
 );

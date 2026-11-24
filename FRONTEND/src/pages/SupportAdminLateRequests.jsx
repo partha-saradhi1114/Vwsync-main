@@ -577,52 +577,73 @@ const SupportAdminLateRequests = () => {
 
   return (
     <div className="p-6 min-h-screen font-sans">
-      <div className="flex flex-col border-gray-300 p-4 rounded-2xl bg-white lg:flex-row lg:justify-between lg:items-center mb-6 gap-4">
-        <div className="flex-1">
-          <h2 className="text-xl sm:text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <FaUserClock className="text-orange-600" /> Attendance Requests
-          </h2>
-          <p className="text-xs sm:text-sm text-gray-500 mt-1">
-            Manage late correction, status adjustments, and full day requests.
-          </p>
+      <div className="flex flex-col border border-gray-200 px-5 py-4 rounded-2xl bg-white lg:flex-row lg:justify-between lg:items-center mb-6 gap-4 shadow-sm overflow-hidden">
+        <div className="flex items-center gap-3 shrink-0">
+          <FaUserClock className="text-orange-500 text-3xl shrink-0" />
+          <div className="max-w-[240px] sm:max-w-[260px]">
+            <h2 className="text-lg sm:text-xl font-bold text-gray-900 leading-tight">
+              Attendance Requests
+            </h2>
+            <p className="text-xs text-gray-500 mt-0.5 leading-snug">
+              Manage late correction, status adjustments, and full day requests.
+            </p>
+          </div>
         </div>
 
 
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-2.5 flex-nowrap overflow-x-auto max-w-full pt-2.5 pb-2">
           <button
             onClick={() => { setRequestType("PENDING"); fetchRequests(); }}
-            className={`flex-1 sm:flex-none text-[10px] sm:text-xs px-3 sm:px-4 py-2 rounded-xl transition shadow-sm font-black uppercase tracking-wider relative border-2 ${requestType === "PENDING"
-              ? "bg-orange-600 text-white border-orange-600"
-              : "bg-white border-gray-100 text-gray-500 hover:bg-gray-50"
-              }`}
+            className={`whitespace-nowrap shrink-0 py-2 px-3.5 sm:px-4 text-center text-xs sm:text-sm font-semibold rounded-lg border transition-all relative ${
+              requestType === "PENDING"
+                ? "bg-orange-600 text-white border-orange-600 shadow-md"
+                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50 shadow-sm"
+            }`}
           >
             Late Login
             {requests.length > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full border-2 border-white shadow-sm">
+              <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-bold px-1 rounded-full border-2 border-white shadow-sm">
                 {requests.length}
               </span>
             )}
           </button>
           <button
             onClick={() => { setRequestType("CORRECTIONS"); fetchCorrectionRequests(); }}
-            className={`flex-1 sm:flex-none text-[10px] sm:text-xs px-3 sm:px-4 py-2 rounded-xl transition shadow-sm font-black uppercase tracking-wider relative border-2 ${requestType === "CORRECTIONS"
-              ? "bg-blue-600 text-white border-blue-600"
-              : "bg-white border-gray-100 text-gray-500 hover:bg-gray-50"
-              }`}
+            className={`whitespace-nowrap shrink-0 py-2 px-3.5 sm:px-4 text-center text-xs sm:text-sm font-semibold rounded-lg border transition-all relative ${
+              requestType === "CORRECTIONS"
+                ? "bg-blue-600 text-white border-blue-600 shadow-md"
+                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50 shadow-sm"
+            }`}
           >
             Corrections
             {correctionRequests.length > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full border-2 border-white shadow-sm">
+              <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-bold px-1 rounded-full border-2 border-white shadow-sm">
                 {correctionRequests.length}
               </span>
             )}
           </button>
           <button
+            onClick={() => { setRequestType("FULL_DAY"); fetchFullDayRequests(); }}
+            className={`whitespace-nowrap shrink-0 py-2 px-3.5 sm:px-4 text-center text-xs sm:text-sm font-semibold rounded-lg border transition-all relative ${
+              requestType === "FULL_DAY"
+                ? "bg-teal-600 text-white border-teal-600 shadow-md"
+                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50 shadow-sm"
+            }`}
+          >
+            Full Day
+            {fullDayRequests.length > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-bold px-1 rounded-full border-2 border-white shadow-sm">
+                {fullDayRequests.length}
+              </span>
+            )}
+          </button>
+          <button
             onClick={() => { setRequestType("LIMITS"); fetchEmployeeLimits(); }}
-            className={`flex-1 sm:flex-none text-[10px] sm:text-xs px-3 sm:px-4 py-2 rounded-xl transition shadow-sm font-black uppercase tracking-wider border-2 ${requestType === "LIMITS"
-              ? "bg-purple-600 text-white border-purple-600"
-              : "bg-white border-gray-100 text-gray-500 hover:bg-gray-50"
-              }`}
+            className={`whitespace-nowrap shrink-0 py-2 px-3.5 sm:px-4 text-center text-xs sm:text-sm font-semibold rounded-lg border transition-all ${
+              requestType === "LIMITS"
+                ? "bg-purple-600 text-white border-purple-600 shadow-md"
+                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50 shadow-sm"
+            }`}
           >
             Limits
           </button>
@@ -631,12 +652,13 @@ const SupportAdminLateRequests = () => {
             onClick={() => {
               if (requestType === "PENDING") fetchRequests();
               else if (requestType === "CORRECTIONS") fetchCorrectionRequests();
+              else if (requestType === "FULL_DAY") fetchFullDayRequests();
               else if (requestType === "LIMITS") fetchEmployeeLimits();
             }}
-            className="flex items-center justify-center w-9 h-9 bg-white border border-gray-200 text-gray-400 rounded-xl hover:bg-gray-50 transition shadow-sm"
+            className="shrink-0 flex items-center justify-center w-9 h-9 bg-white border border-gray-300 text-gray-500 rounded-lg hover:bg-gray-50 transition shadow-sm"
             title="Refresh"
           >
-            <FaCog className={loading || correctionLoading || loadingLimits ? "animate-spin" : ""} />
+            <FaCog className={loading || correctionLoading || fullDayLoading || loadingLimits ? "animate-spin text-orange-600" : "text-gray-500"} />
           </button>
         </div>
       </div>

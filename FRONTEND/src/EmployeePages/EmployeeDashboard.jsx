@@ -874,6 +874,8 @@ const EmployeeDashboard = () => {
 
   const handlePunch = async (action) => {
     if (!user) return;
+    if (punchStatus !== "IDLE") return;
+
     if (action === "IN") {
       if (!todayLog) {
         if (missedPunchLog && missedPunchRequestStatus !== "Approved") {
@@ -887,6 +889,9 @@ const EmployeeDashboard = () => {
           return;
         }
       }
+
+      // Immediately set status to lock the button during async checks
+      setPunchStatus("FETCHING");
 
       // ✅ WEEK OFF GUARD — check if today is assigned week off
       const todayDayNum = new Date().getDay(); // 0=Sunday … 6=Saturday
@@ -902,6 +907,7 @@ const EmployeeDashboard = () => {
             : null;
 
           if (!approvedOT) {
+            setPunchStatus("IDLE");
             // No approved OT — block and show informative alert
             Swal.fire({
               icon: "warning",
@@ -931,6 +937,7 @@ const EmployeeDashboard = () => {
           }
           // ✅ Approved OT found — fall through to performPunchAction below
         } catch (err) {
+          setPunchStatus("IDLE");
           console.error("Week-off OT check failed:", err);
           // If check fails, let backend decide — don't silently allow
           Swal.fire({

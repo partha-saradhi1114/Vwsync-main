@@ -10,7 +10,6 @@ import {
   Laptop,
   MapPinned,
   Receipt,
-  Users,
   ClipboardList,
   Settings,
   AlertCircle,
@@ -18,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   IndianRupee,
+  MessageSquare,
   X
 } from "lucide-react";
 
@@ -32,6 +32,7 @@ const NAV_SECTIONS = [
       { to: "/employee/my-attendence", label: "Attendance", icon: UserCheck },
       { to: "/employee/holiday-calendar", label: "Holiday Calendar", icon: Calendar },
       { to: "/employee/notices", label: "Notice Board", icon: Megaphone, isNotice: true },
+      { to: "/employee/conversations", label: "ChatHub", icon: MessageSquare, isChat: true },
     ]
   },
   {
@@ -47,7 +48,6 @@ const NAV_SECTIONS = [
     title: "Resources",
     links: [
       { to: "/employee/payslip", label: "Pay-Slip", icon: IndianRupee },
-      { to: "/employee/chatting", label: "Connect", icon: Users },
       { to: "/employee/field-work", label: "Field Work", icon: MapPinned },
       { to: "/employee/daily-work-tracker", label: "Work Tracker", icon: ClipboardList },
     ]
@@ -69,6 +69,7 @@ const SidebarEmployee = ({ mobileOpen, setMobileOpen }) => {
   const sidebarRef = useRef(null);
   const { user } = useContext(AuthContext);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const lastCountRef = useRef(0);
   const firstLoadRef = useRef(true);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -126,6 +127,29 @@ const SidebarEmployee = ({ mobileOpen, setMobileOpen }) => {
     const interval = setInterval(fetchUnreadCount, 5000);
     return () => clearInterval(interval);
   }, [fetchUnreadCount]);
+
+  const fetchChatUnreadCount = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data } = await api.get("/api/chat/unread/count");
+      if (typeof data?.count === "number") {
+        setChatUnreadCount(data.count);
+      }
+    } catch (_) {}
+  }, [user]);
+
+  useEffect(() => {
+    fetchChatUnreadCount();
+    const interval = setInterval(fetchChatUnreadCount, 6000);
+    const handleUpdate = () => {
+      fetchChatUnreadCount();
+    };
+    window.addEventListener("chatUnreadUpdated", handleUpdate);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("chatUnreadUpdated", handleUpdate);
+    };
+  }, [fetchChatUnreadCount]);
 
   useEffect(() => {
     if (isMobile) {
@@ -259,6 +283,9 @@ const SidebarEmployee = ({ mobileOpen, setMobileOpen }) => {
                         {collapsed && !isMobile && link.isNotice && unreadCount > 0 && (
                           <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full border border-slate-900" />
                         )}
+                        {collapsed && !isMobile && link.isChat && chatUnreadCount > 0 && (
+                          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border border-slate-900" />
+                        )}
                       </div>
                       {(!collapsed || isMobile) && (
                         <>
@@ -266,6 +293,11 @@ const SidebarEmployee = ({ mobileOpen, setMobileOpen }) => {
                           {link.isNotice && unreadCount > 0 && (
                             <span className="ml-auto bg-red-500 text-white text-[10px] font-bold h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center animate-pulse">
                               {unreadCount}
+                            </span>
+                          )}
+                          {link.isChat && chatUnreadCount > 0 && (
+                            <span className="ml-auto bg-blue-600 text-white text-[10px] font-bold h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center shadow">
+                              {chatUnreadCount > 9 ? "9+" : chatUnreadCount}
                             </span>
                           )}
                         </>

@@ -140,6 +140,8 @@ const AdminNotifications = () => {
       navigate("/admin/late-requests");
     } else if (n.type === "expense") {
       navigate("/admin/expense");
+    } else if (n.type === "notice") {
+      navigate("/admin/notices");
     } else if (n.redirectUrl) {
       navigate(n.redirectUrl);
     }
@@ -514,7 +516,7 @@ const AdminNotifications = () => {
 
                     {/* Circular Glowing Icon */}
                     <div className={`p-3 rounded-xl text-md shrink-0 transition-transform group-hover:scale-105 duration-200 ${styles.iconBg}`}>
-                      {n.icon ? n.icon : (n.type === "system" ? <FaExclamationCircle /> : <FaBell />)}
+                      {n.icon ? n.icon : (n.type === "system" ? <FaExclamationCircle /> : (n.type === "notice" ? <FaBullhorn className="text-violet-500" /> : <FaBell />))}
                     </div>
 
                     {/* Content Section */}

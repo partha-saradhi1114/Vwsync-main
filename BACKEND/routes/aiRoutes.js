@@ -25,21 +25,25 @@ router.post("/optimize-reason", async (req, res) => {
     let lastError = null;
     let optimizedText = null;
 
+    const candidateModels = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-pro"];
+
     // Try each key until one works or we run out
     for (const apiKey of apiKeys) {
       try {
         console.log(`Attempting with Gemini API key starting with: ${apiKey.substring(0, 10)}...`);
-        
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ 
-          model: "gemini-1.5-flash",
-          generationConfig: {
-            maxOutputTokens: 600, 
-            temperature: 0.7,
-          }
-        });
 
-        const prompt = `Professionalize and optimize this HRMS leave reason. Keep it extremely concise, just 1 or 2 short sentences.
+        for (const modelName of candidateModels) {
+          try {
+            const model = genAI.getGenerativeModel({ 
+              model: modelName,
+              generationConfig: {
+                maxOutputTokens: 600, 
+                temperature: 0.7,
+              }
+            });
+
+            const prompt = `Professionalize and optimize this HRMS leave reason. Keep it extremely concise, just 1 or 2 short sentences.
 IMPORTANT RULES:
 1. ONLY output the pure reason. 
 2. DO NOT use introductory filler phrases like "The purpose of this leave is to", "I am writing to request", or "This request is necessitated by". 
@@ -51,12 +55,18 @@ User Input Reason: "${reason}"
 
 Return ONLY the optimized text. No quotes, no markdown.`;
 
-        const result = await model.generateContent(prompt);
-        const response = result.response;
-        optimizedText = response.text().trim();
+            const result = await model.generateContent(prompt);
+            const response = result.response;
+            optimizedText = response.text().trim();
+            if (optimizedText) break;
+          } catch (modelErr) {
+            lastError = modelErr;
+            continue;
+          }
+        }
         
         // Success! Break out of the loop
-        break;
+        if (optimizedText) break;
       } catch (error) {
         lastError = error;
         const errorMessage = error?.message || "";
@@ -117,18 +127,23 @@ router.post("/generate-announcement", async (req, res) => {
     let optimizedText = null;
     let lastError = null;
 
+    const candidateModels = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-pro"];
+
     for (const apiKey of apiKeys) {
       try {
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ 
-          model: "gemini-1.5-flash",
-          generationConfig: {
-            maxOutputTokens: 1000,
-            temperature: 0.7,
-          }
-        });
 
-        const prompt = `Act as an expert HR Communications Manager. Your goal is to write a concise, high-impact, and professional announcement description based on the title provided.
+        for (const modelName of candidateModels) {
+          try {
+            const model = genAI.getGenerativeModel({ 
+              model: modelName,
+              generationConfig: {
+                maxOutputTokens: 1000,
+                temperature: 0.7,
+              }
+            });
+
+            const prompt = `Act as an expert HR Communications Manager. Your goal is to write a concise, high-impact, and professional announcement description based on the title provided.
 
         Title: "${title}"
 
@@ -143,9 +158,16 @@ router.post("/generate-announcement", async (req, res) => {
 
         Ensure the result is a perfectly finished 4-5 line professional announcement.`;
 
-        const result = await model.generateContent(prompt);
-        optimizedText = result.response.text().trim();
-        break;
+            const result = await model.generateContent(prompt);
+            optimizedText = result.response.text().trim();
+            if (optimizedText) break;
+          } catch (modelErr) {
+            lastError = modelErr;
+            continue;
+          }
+        }
+
+        if (optimizedText) break;
       } catch (error) {
         lastError = error;
         continue;

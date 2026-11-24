@@ -124,6 +124,7 @@ const EmployeeSchema = new mongoose.Schema({
   // PREFERENCES
   theme: { type: String, enum: ["light", "dark", "system"], default: "system" },
   isAdmin: { type: Boolean, default: false }, // Internal flag (e.g., Company HR), not the SaaS Admin
+  lastSeen: { type: Date, default: Date.now },
 }, { timestamps: true });
 
 // Hash password before save

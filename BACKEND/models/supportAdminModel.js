@@ -110,6 +110,7 @@ const supportAdminSchema = new mongoose.Schema(
     bankDetails: bankSchema,
     personalDetails: personalSchema,
     experienceDetails: [experienceSchema],
+    lastSeen: { type: Date, default: Date.now },
   },
   { timestamps: true }
 );

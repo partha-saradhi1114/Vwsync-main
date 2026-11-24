@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* SweetAlert container z-index must be above modal dialogs (ModalWrapper uses z-[9999]) */
+.swal2-container {
+  z-index: 100000 !important;
+}
+
 /* Custom animations for Employee Profile */
 @keyframes fadeIn {
   from {

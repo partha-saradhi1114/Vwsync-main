@@ -179,7 +179,7 @@ router.get("/my/:employeeId", protect, async (req, res) => {
 // ============================================================
 router.get("/admin/all", protect, onlyAdmin, async (req, res) => {
   try {
-    const adminId = req.user._id;
+    const adminId = req.user.role === "support-admin" ? (req.user.adminId || req.user._id) : req.user._id;
     const resignations = await Resignation.find({ adminId }).sort({ createdAt: -1 });
     res.status(200).json(resignations);
   } catch (err) {
@@ -283,6 +283,24 @@ router.post("/admin/decision/:id", protect, onlyAdmin, upload.single("acceptance
       }
 
       await resignation.save();
+
+      // Deactivate employee account if immediate release or notice period is 0 / already ended
+      if (noticePeriodType === "Immediate" || days === 0 || (endDate && new Date(endDate) <= new Date())) {
+        try {
+          await Employee.findOneAndUpdate(
+            { employeeId: resignation.employeeId },
+            {
+              isActive: false,
+              status: "Inactive",
+              loginEnabled: false,
+              deactivationDate: new Date().toISOString(),
+              deactivationReason: "Resignation approved (Immediate release)"
+            }
+          );
+        } catch (empErr) {
+          console.error("Error deactivating employee on immediate resignation:", empErr.message);
+        }
+      }
 
       // Notify Employee
       const employee = await Employee.findOne({ employeeId: resignation.employeeId });
@@ -592,6 +610,22 @@ router.post("/admin/complete/:id", protect, onlyAdmin, async (req, res) => {
     );
     if (!resignation) return res.status(404).json({ message: "Not found" });
 
+    // Auto-deactivate employee account upon completing resignation exit formalities
+    try {
+      await Employee.findOneAndUpdate(
+        { employeeId: resignation.employeeId },
+        {
+          isActive: false,
+          status: "Inactive",
+          loginEnabled: false,
+          deactivationDate: new Date().toISOString(),
+          deactivationReason: "Resignation completed"
+        }
+      );
+    } catch (empErr) {
+      console.error("Error deactivating employee on resignation complete:", empErr.message);
+    }
+
     // Notify Employee
     const employee = await Employee.findOne({ employeeId: resignation.employeeId });
     if (employee) {
@@ -734,6 +768,22 @@ router.post("/system/check-countdowns", async (req, res) => {
       r.status = "Exit Formalities";
       await _loadWelcomeKitItems(r);
       await r.save();
+
+      // Notice period ended -> deactivate employee status
+      try {
+        await Employee.findOneAndUpdate(
+          { employeeId: r.employeeId },
+          {
+            isActive: false,
+            status: "Inactive",
+            loginEnabled: false,
+            deactivationDate: new Date().toISOString(),
+            deactivationReason: "Resignation notice period ended"
+          }
+        );
+      } catch (empErr) {
+        console.error("Error deactivating employee on notice period expiration:", empErr.message);
+      }
     }
 
     res.status(200).json({ processed: expiredResignations.length });

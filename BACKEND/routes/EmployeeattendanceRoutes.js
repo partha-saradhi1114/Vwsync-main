@@ -385,14 +385,27 @@ const populateEmployeeNames = async (records, audience) => {
 };
 
 const getEmployeeAttendanceIds = async (req, audience = "employee") => {
+  const adminId =
+    req.user.role === "support-admin"
+      ? req.user.adminId
+      : req.user._id;
+
   if (audience === "support-admin") {
-    const supportAdminIds = await SupportAdmin.find({ adminId: (req.user.role === "support-admin" ? req.user.adminId : req.user._id) }).distinct("_id");
+    const supportAdminIds = await SupportAdmin.find({
+      adminId: adminId
+    }).distinct("_id");
+
     return supportAdminIds.map((id) => id.toString());
   }
-  return Employee.find({ adminId: (req.user.role === "support-admin" ? req.user.adminId : req.user._id) }).distinct("employeeId");
+
+  // Get employee IDs directly from Attendance collection.
+  // This includes attendance records of permanently deleted employees.
+  const attendanceEmployeeIds = await Attendance.find({
+    adminId: adminId
+  }).distinct("employeeId");
+
+  return attendanceEmployeeIds;
 };
-
-
 /* ==========================================================
    5. SIMPLE ADMIN — GET ALL (Scoped to admin)
    ========================================================== */
@@ -2230,6 +2243,7 @@ router.post("/request-correction-advanced", protect, async (req, res) => {
  */
 router.get("/admin/pending-corrections", protect, onlyAdmin, async (req, res) => {
   try {
+
     let companyIds = [];
     const audience = req.query.audience || "employee";
     const employeeIds = await getEmployeeAttendanceIds(req, audience);

@@ -803,6 +803,23 @@ export const adminServiceApproveResignation = async ({
   if (lastWorkingDate) resDoc.lastWorkingDate = new Date(lastWorkingDate);
   await resDoc.save();
 
+  if (lastWorkingDate && new Date(lastWorkingDate) <= new Date()) {
+    try {
+      await Employee.findOneAndUpdate(
+        { employeeId: resDoc.employeeId },
+        {
+          isActive: false,
+          status: "Inactive",
+          loginEnabled: false,
+          deactivationDate: new Date().toISOString(),
+          deactivationReason: "Resignation approved (last working date elapsed)"
+        }
+      );
+    } catch (empErr) {
+      console.error("Error deactivating employee in adminServiceApproveResignation:", empErr.message);
+    }
+  }
+
   if (io) {
     io.emit("hrmsResignationUpdated", { resignationId: resDoc._id, status: "Approved" });
   }

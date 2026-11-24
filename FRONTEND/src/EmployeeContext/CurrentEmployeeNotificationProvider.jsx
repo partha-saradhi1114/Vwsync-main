@@ -56,26 +56,27 @@ const CurrentEmployeeNotificationProvider = ({ children }) => {
     sessionStorage.setItem(READ_NOTICE_KEY, JSON.stringify(ids));
 
   // ─── Load notifications ───────────────────────────────────────────────────
-  const loadNotifications = useCallback(async () => {
-    try {
-      const all = await getNotifications();
-      const userId = getUserId();
+    
+const loadNotifications = useCallback(async () => {
+  try {
+    const all = await getNotifications();
+    
 
-      // Filter to only this employee's own notifications
-      const filtered = (Array.isArray(all) ? all : []).filter((n) => {
-        const targetId = String(n.userId?._id || n.userId || "");
-        return targetId === String(userId) || n.role === "employee" || n.role === "all";
-      });
-      filtered.sort(
-        (a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt)
-      );
+    // Backend already filters notifications for this employee
+    const filtered = (Array.isArray(all) ? [...all] : []).sort(
+      (a, b) =>
+        new Date(b.date || b.createdAt) -
+        new Date(a.date || a.createdAt)
+    );
 
-      setNotifications(filtered);
-      setUnreadNotifications(filtered.filter((n) => !n.isRead).length);
-    } catch (err) {
-      console.error("❌ Error loading notifications:", err);
-    }
-  }, [loggedUser]);
+    setNotifications(filtered);
+    setUnreadNotifications(
+      filtered.filter((n) => !n.isRead).length
+    );
+  } catch (err) {
+    console.error("❌ Error loading notifications:", err);
+  }
+}, [loggedUser]);
 
   // ─── Load notices ─────────────────────────────────────────────────────────
   const loadNotices = useCallback(async () => {

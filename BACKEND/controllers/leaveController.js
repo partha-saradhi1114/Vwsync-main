@@ -300,7 +300,12 @@ export const createLeave = async (req, res) => {
     return res.status(201).json(newLeave);
   } catch (err) {
     console.error("createLeave error:", err);
-    return res.status(400).json({ message: err.message || "Failed to submit leave request." });
+    const isDuplicate = err.message && (
+      err.message.includes("already been submitted") ||
+      err.message.toLowerCase().includes("duplicate")
+    );
+    const statusCode = isDuplicate ? 409 : 400;
+    return res.status(statusCode).json({ message: err.message || "Failed to submit leave request." });
   }
 };
 

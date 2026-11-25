@@ -15,7 +15,7 @@ import {
   FaBars,
 } from "react-icons/fa";
 import { CurrentEmployeeNotificationContext } from "../../EmployeeContext/CurrentEmployeeNotificationContext";
-import WelcomeKitPopup from "./WelcomeKitPopup"; // ✅ Import the popup
+import WelcomeKitPopup from "./Welcomekitpopup"; // ✅ Import the popup
 import api from "../../api"; // ✅ Import api for status check
 import NavbarEmployeeNav from "./NavbarEmployeeNav";
 

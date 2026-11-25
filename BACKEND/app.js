@@ -109,6 +109,11 @@ const isAllowedOrigin = (origin) => {
     return true;
   }
 
+  // allow vercel deployments
+  if (/^https:\/\/([a-z0-9-]+\.)?vercel\.app$/i.test(origin)) {
+    return true;
+  }
+
   return false;
 };
 

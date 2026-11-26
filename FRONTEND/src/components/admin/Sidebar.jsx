@@ -150,6 +150,7 @@ const Sidebar = ({ mobileOpen, setMobileOpen }) => {
           route: "/admin/conversations",
           label: "ChatHub",
           icon: MessageSquare,
+          alwaysAllowed: true,
           isChat: true,
         },
       ],

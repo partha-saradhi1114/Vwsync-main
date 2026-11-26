@@ -16,6 +16,9 @@ import {
 
 const SOCKET_URL =
   import.meta.env.VITE_SOCKET_URL ||
+  (import.meta.env.MODE === "production"
+    ? import.meta.env.VITE_API_URL_PRODUCTION
+    : import.meta.env.VITE_API_URL_DEVELOPMENT) ||
   import.meta.env.VITE_API_URL ||
   "http://localhost:5000";
 
@@ -70,20 +73,22 @@ const formatSystemActionText = (item, myId, myNameRaw) => {
     } catch (_) {}
   }
 
-  // Check metadata if present
-  const performerId = item.performer?.userId?.toString() || item.performerId?.toString() || (item.sender && item.sender._id ? item.sender._id.toString() : (typeof item.sender === "string" ? item.sender : ""));
-  const performerName = item.performer?.name || item.performerName || (item.sender?.name && item.sender.name !== "System" ? item.sender.name : "");
+  // Explicit performer metadata if available
+  const explicitPerformerId = item.performer?.userId?.toString() || item.performerId?.toString();
+  const explicitPerformerName = item.performer?.name || item.performerName || "";
   const targetUsers = Array.isArray(item.targetUsers) ? item.targetUsers : [];
 
   // Match "X added Y to the group" or "X added Y"
   const addMatch = rawText.match(/^(.+?)\s+added\s+(.+?)(?:\s+to the group)?$/i);
   if (addMatch) {
-    const parsedAdder = performerName || addMatch[1].trim();
+    const rawAdder = addMatch[1].trim();
+    const adderName = rawAdder || explicitPerformerName;
     const parsedAdded = targetUsers.length > 0 ? targetUsers.map(u => u.name || "Member").join(", ") : addMatch[2].trim();
 
-    const isAdder = (performerId && myIdStr && performerId === myIdStr) ||
-                    (myName && parsedAdder.toLowerCase() === myName) ||
-                    parsedAdder.toLowerCase() === "you";
+    const adderLower = adderName.toLowerCase();
+    const isAdder = adderLower === "you" || (myName && adderLower === myName) || (
+      explicitPerformerId && myIdStr && explicitPerformerId === myIdStr && (adderLower === "you" || !rawAdder || (myName && adderLower === myName))
+    );
 
     const isAdded = targetUsers.some(u => (u.userId && u.userId.toString() === myIdStr) || (u.name && u.name.trim().toLowerCase() === myName)) ||
                     (myName && parsedAdded.toLowerCase().split(", ").some(n => n.trim().toLowerCase() === myName)) ||
@@ -93,22 +98,30 @@ const formatSystemActionText = (item, myId, myNameRaw) => {
       return `You added ${parsedAdded} to the group`;
     }
     if (isAdded) {
-      return `You were added by ${parsedAdder} to the group`;
+      return `You were added by ${adderName} to the group`;
     }
-    return `${parsedAdder} added ${parsedAdded} to the group`;
+    return `${adderName} added ${parsedAdded} to the group`;
   }
 
   // Match "X left the group"
   const leaveMatch = rawText.match(/^(.+?)\s+left the group$/i);
   if (leaveMatch) {
-    const leaver = performerName || leaveMatch[1].trim();
-    const isLeaver = (performerId && myIdStr && performerId === myIdStr) ||
-                     (myName && leaver.toLowerCase() === myName) ||
-                     leaver.toLowerCase() === "you";
-    if (isLeaver) {
+    const parsedLeaver = leaveMatch[1].trim();
+    const leaverLower = parsedLeaver.toLowerCase();
+
+    // Check if the leaver is ME:
+    // 1. Text literally says "You"
+    // 2. Parsed leaver text matches my name
+    // 3. Explicit performer ID matches my ID AND the parsed leaver text does NOT name someone else
+    const isDirectMatch = leaverLower === "you" || (myName && leaverLower === myName);
+    const isPerformerMatch = explicitPerformerId && myIdStr && explicitPerformerId === myIdStr && (
+      leaverLower === "you" || leaverLower === "a member" || (myName && leaverLower === myName)
+    );
+
+    if (isDirectMatch || isPerformerMatch) {
       return "You left the group";
     }
-    return `${leaver} left the group`;
+    return `${parsedLeaver} left the group`;
   }
 
   return rawText;
@@ -195,6 +208,7 @@ const ConnectWithEmployee = () => {
   // ── File Attachments ─────────────────────────────────────────────────────
   const [attachedFiles, setAttachedFiles] = useState([]);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [downloadingAttachmentKey, setDownloadingAttachmentKey] = useState(null);
   const fileInputRef = useRef(null);
 
   // ── Refs ─────────────────────────────────────────────────────────────────
@@ -854,6 +868,7 @@ const ConnectWithEmployee = () => {
         setDirectMessages(unique);
       }
       setGroups(prev => prev.map(g => sameId(g._id, group._id) ? { ...g, unreadCount: 0 } : g));
+      api.put(`/api/chat/groups/${group._id}/read`).catch(() => {});
       window.dispatchEvent(new Event("chatUnreadUpdated"));
     } catch (err) {
       console.error("fetchGroupMessages:", err);
@@ -1135,10 +1150,47 @@ const ConnectWithEmployee = () => {
       toast.success("File attached", { icon: "📎" });
     } catch (err) {
       console.error("Upload error:", err);
-      toast.error("Failed to upload file");
+      toast.error(err.response?.data?.error || "Failed to upload file");
     } finally {
       setIsUploadingFile(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleDownloadAttachment = async (att, attachmentKey) => {
+    if (!att?.url || downloadingAttachmentKey === attachmentKey) return;
+    setDownloadingAttachmentKey(attachmentKey);
+    try {
+      const fileName = att.fileName || "document";
+      const response = await api.get("/api/chat/download", {
+        params: { url: att.url, fileName },
+        responseType: "blob",
+      });
+      const blobUrl = window.URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+    } catch (err) {
+      let errMsg = "Failed to download file";
+      if (err.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const parsed = JSON.parse(text);
+          errMsg = parsed.error || parsed.message || errMsg;
+        } catch {
+          // ignore non-JSON blob errors
+        }
+      } else if (err.response?.data?.error || err.response?.data?.message) {
+        errMsg = err.response.data.error || err.response.data.message;
+      }
+      console.error("Download attachment error:", err.response?.status, errMsg, err);
+      toast.error(errMsg);
+    } finally {
+      setDownloadingAttachmentKey(null);
     }
   };
 
@@ -1509,7 +1561,7 @@ const ConnectWithEmployee = () => {
             </div>
 
             {/* Top Create Group shortcut if in groups mode */}
-            {chatMode === "groups" ? (
+            {chatMode === "groups" && (
               <button
                 onClick={() => setIsGroupModalOpen(true)}
                 className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-xl transition-all flex items-center gap-1.5 text-xs font-bold shadow-sm"
@@ -1518,11 +1570,7 @@ const ConnectWithEmployee = () => {
                 <FaPlus size={12} />
                 <span>New</span>
               </button>
-            ) : totalUnreadCount > 0 ? (
-              <span className="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-lg border border-white/20">
-                {totalUnreadCount > 9 ? "9+" : totalUnreadCount}
-              </span>
-            ) : null}
+            )}
           </div>
 
           {/* Primary Mode Toggle: Direct Messages vs Teams/Groups */}
@@ -2137,12 +2185,11 @@ const ConnectWithEmployee = () => {
                                                   />
                                                 </a>
                                               ) : (
-                                                <a
-                                                  href={att.url}
-                                                  target="_blank"
-                                                  rel="noopener noreferrer"
-                                                  download={att.fileName}
-                                                  className={`flex items-center gap-3 p-2.5 rounded-xl transition-colors ${
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleDownloadAttachment(att, `${msg._id}-${i}`)}
+                                                  disabled={downloadingAttachmentKey === `${msg._id}-${i}`}
+                                                  className={`w-full text-left flex items-center gap-3 p-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-70 ${
                                                     isMe
                                                       ? "bg-white/15 hover:bg-white/25 text-white"
                                                       : "bg-slate-100 hover:bg-slate-200 text-slate-800"
@@ -2157,8 +2204,12 @@ const ConnectWithEmployee = () => {
                                                       <p className="text-[10px] opacity-75">{formatFileSize(att.fileSize)}</p>
                                                     )}
                                                   </div>
-                                                  <FaDownload size={13} className="opacity-75" />
-                                                </a>
+                                                  {downloadingAttachmentKey === `${msg._id}-${i}` ? (
+                                                    <FaSpinner size={13} className="animate-spin opacity-75" />
+                                                  ) : (
+                                                    <FaDownload size={13} className="opacity-75" />
+                                                  )}
+                                                </button>
                                               )}
                                             </div>
                                           ))}

@@ -2,13 +2,17 @@
 import express from "express";
 import mongoose from "mongoose";
 import nodemailer from "nodemailer";
+import path from "path";
+import { Readable } from "stream";
+import multer from "multer";
+import { v4 as uuidv4 } from "uuid";
 import Message from "../models/Message.js";
 import ChatGroup from "../models/ChatGroup.js";
 import Employee from "../models/employeeModel.js";
 import SupportAdmin from "../models/supportAdminModel.js";
 import Admin from "../models/adminModel.js";
 import { protect } from "../controllers/authController.js";
-import { upload } from "../config/cloudinary.js";
+import { cloudinary } from "../config/cloudinary.js";
 
 const router = express.Router();
 
@@ -584,16 +588,20 @@ router.get("/history/:userId", protect, async (req, res) => {
       return mObj;
     });
 
-    // Mark received messages as read
-    Message.updateMany(
-      {
-        sender: userObj,
-        receiver: meObj,
-        isRead: false,
-        "clearedFor.userId": { $nin: allMyIds },
-      },
-      { isRead: true }
-    ).catch(console.error);
+    // Mark received messages as read (serverless safe with await)
+    try {
+      await Message.updateMany(
+        {
+          sender: { $in: [userObj, userId] },
+          receiver: { $in: allMyIds },
+          isRead: false,
+          "clearedFor.userId": { $nin: allMyIds },
+        },
+        { isRead: true }
+      );
+    } catch (readErr) {
+      console.error("Direct history mark read error:", readErr);
+    }
 
     // Notify the other side their messages were read
     const io = getIO(req);
@@ -778,13 +786,18 @@ router.get("/users", protect, async (req, res) => {
 router.put("/read/:senderId", protect, async (req, res) => {
   try {
     const { senderId } = req.params;
-    const me = req.user.actualId || req.user._id;
+    const rawMe = req.user.actualId || req.user._id;
+    const meStr = rawMe ? rawMe.toString() : "";
+    const meObj = (rawMe && mongoose.Types.ObjectId.isValid(rawMe))
+      ? new mongoose.Types.ObjectId(rawMe)
+      : null;
+    const allMyIds = [meObj, meStr, req.user._id, req.user.actualId].filter(Boolean);
 
     if (!mongoose.Types.ObjectId.isValid(senderId))
       return res.status(400).json({ error: "Invalid senderId" });
 
     await Message.updateMany(
-      { sender: senderId, receiver: me, isRead: false },
+      { sender: senderId, receiver: { $in: allMyIds }, isRead: false },
       { isRead: true }
     );
 
@@ -980,11 +993,13 @@ router.get("/unread/count", protect, async (req, res) => {
 
     const allMyIds = [myIdObj, myIdStr, req.user._id, req.user.actualId].filter(Boolean);
 
-    // 1. Direct 1-on-1 unread messages
+    // 1. Direct 1-on-1 unread messages (exclude system messages)
     const directCount = await Message.countDocuments({
       receiver: { $in: allMyIds },
       isRead: false,
       isDeleted: false,
+      isSystem: { $ne: true },
+      messageType: { $ne: "system" },
       deletedForEveryone: { $ne: true },
       "deletedFor.userId": { $nin: allMyIds },
       "clearedFor.userId": { $nin: allMyIds },
@@ -1022,6 +1037,8 @@ router.get("/unread/count", protect, async (req, res) => {
           sender: { $nin: allMyIds },
           "readBy.userId": { $nin: allMyIds },
           isDeleted: false,
+          isSystem: { $ne: true },
+          messageType: { $ne: "system" },
           deletedForEveryone: { $ne: true },
           "deletedFor.userId": { $nin: allMyIds },
         };
@@ -1223,6 +1240,10 @@ router.get("/groups", protect, async (req, res) => {
           sender: { $nin: allMyIds },
           "readBy.userId": { $nin: allMyIds },
           isDeleted: false,
+          isSystem: { $ne: true },
+          messageType: { $ne: "system" },
+          deletedForEveryone: { $ne: true },
+          "deletedFor.userId": { $nin: allMyIds },
           ...(clearedAt ? { createdAt: { $gt: clearedAt } } : {}),
         });
 
@@ -1334,13 +1355,21 @@ router.get("/groups/:groupId/history", protect, async (req, res) => {
       // Use deterministic, stable ID so client-side polling does not duplicate the message
       const timeMs = group.lastMessage.timestamp ? new Date(group.lastMessage.timestamp).getTime() : 0;
       const stableId = `sys_${group._id}_${timeMs}`;
+      const fallbackPerformerId = group.lastMessage?.performerId || null;
+      const fallbackPerformerName = group.lastMessage?.performerName || "";
+
       const fallbackSystemMsg = {
         _id: stableId,
         groupId: groupObjId,
         sender: {
-          _id: group.createdBy || myIdObj || rawMyId,
-          name: "System",
+          _id: fallbackPerformerId || group.createdBy || myIdObj || rawMyId,
+          name: fallbackPerformerName || "System",
         },
+        performer: {
+          userId: fallbackPerformerId,
+          name: fallbackPerformerName,
+        },
+        systemAction: group.lastMessage?.systemAction || null,
         message: group.lastMessage.text,
         isSystem: true,
         messageType: "system",
@@ -1352,11 +1381,16 @@ router.get("/groups/:groupId/history", protect, async (req, res) => {
       let creatorModel = group.creatorModel || "Employee";
       Message.create({
         groupId: groupObjId,
-        sender: group.createdBy || myIdObj || rawMyId,
+        sender: fallbackPerformerId || group.createdBy || myIdObj || rawMyId,
         senderModel: creatorModel,
         message: group.lastMessage.text,
         isSystem: true,
         messageType: "system",
+        systemAction: group.lastMessage?.systemAction || null,
+        performer: {
+          userId: fallbackPerformerId,
+          name: fallbackPerformerName,
+        },
         createdAt: group.lastMessage.timestamp || new Date(),
         isRead: true,
       }).catch(() => {});
@@ -1397,17 +1431,40 @@ router.get("/groups/:groupId/history", protect, async (req, res) => {
       return mObj;
     });
 
-    Message.updateMany(
-      {
-        groupId: groupObjId,
-        sender: { $nin: allMyIds },
-        "readBy.userId": { $nin: allMyIds },
-        ...(clearedAt ? { createdAt: { $gt: clearedAt } } : {}),
-      },
-      {
-        $addToSet: { readBy: { userId: myIdObj || rawMyId, readAt: new Date() } },
-      }
-    ).catch(console.error);
+    // Build receipt entries for all identities (SupportAdmin dual-ID & standard accounts)
+    const readReceiptEntries = [];
+    if (myIdObj) {
+      readReceiptEntries.push({ userId: myIdObj, readAt: new Date() });
+    }
+    if (req.user.actualId && req.user._id && req.user.actualId.toString() !== req.user._id.toString()) {
+      try {
+        readReceiptEntries.push({ userId: new mongoose.Types.ObjectId(req.user._id.toString()), readAt: new Date() });
+      } catch (_) {}
+    }
+    if (readReceiptEntries.length === 0 && rawMyId) {
+      readReceiptEntries.push({ userId: rawMyId, readAt: new Date() });
+    }
+
+    // Await database update so serverless execution (Vercel/Render) never freezes before write completes
+    try {
+      await Message.updateMany(
+        {
+          groupId: groupObjId,
+          sender: { $nin: allMyIds },
+          "readBy.userId": { $nin: allMyIds },
+          ...(clearedAt ? { createdAt: { $gt: clearedAt } } : {}),
+        },
+        {
+          $addToSet: {
+            readBy: {
+              $each: readReceiptEntries,
+            },
+          },
+        }
+      );
+    } catch (groupReadErr) {
+      console.error("Group history mark read error:", groupReadErr);
+    }
 
     // Collapse any duplicate historical system events (e.g. from rapid retries)
     const seenSystemEvents = new Set();
@@ -1427,6 +1484,58 @@ router.get("/groups/:groupId/history", protect, async (req, res) => {
     return res.json(cleanMessages);
   } catch (err) {
     console.error("Get group history error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT /api/chat/groups/:groupId/read — Mark all group messages as read
+// ─────────────────────────────────────────────────────────────────────────────
+router.put("/groups/:groupId/read", protect, async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(groupId)) {
+      return res.status(400).json({ error: "Invalid groupId" });
+    }
+    const groupObjId = new mongoose.Types.ObjectId(groupId);
+    const rawMyId = req.user.actualId || req.user._id;
+    const myIdStr = rawMyId ? rawMyId.toString() : "";
+    const myIdObj = (rawMyId && mongoose.Types.ObjectId.isValid(rawMyId))
+      ? new mongoose.Types.ObjectId(rawMyId)
+      : null;
+    const allMyIds = [myIdObj, myIdStr, req.user._id, req.user.actualId].filter(Boolean);
+
+    const readReceiptEntries = [];
+    if (myIdObj) {
+      readReceiptEntries.push({ userId: myIdObj, readAt: new Date() });
+    }
+    if (req.user.actualId && req.user._id && req.user.actualId.toString() !== req.user._id.toString()) {
+      try {
+        readReceiptEntries.push({ userId: new mongoose.Types.ObjectId(req.user._id.toString()), readAt: new Date() });
+      } catch (_) {}
+    }
+    if (readReceiptEntries.length === 0 && rawMyId) {
+      readReceiptEntries.push({ userId: rawMyId, readAt: new Date() });
+    }
+
+    await Message.updateMany(
+      {
+        groupId: groupObjId,
+        sender: { $nin: allMyIds },
+        "readBy.userId": { $nin: allMyIds },
+      },
+      {
+        $addToSet: {
+          readBy: {
+            $each: readReceiptEntries,
+          },
+        },
+      }
+    );
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Mark group read error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
@@ -2057,26 +2166,236 @@ router.post("/messages/:messageId/react", protect, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Chat Attachment Storage & Helpers (isolated from shared config/cloudinary.js)
+// ─────────────────────────────────────────────────────────────────────────────
+const ALLOWED_CHAT_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+  "text/csv",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
+
+const ALLOWED_CHAT_EXTENSIONS = new Set([
+  ".jpg", ".jpeg", ".png", ".gif", ".webp",
+  ".pdf", ".doc", ".docx", ".txt", ".csv", ".xls", ".xlsx",
+]);
+
+const chatUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    if (
+      file.mimetype?.startsWith("image/") ||
+      ALLOWED_CHAT_MIME_TYPES.has(file.mimetype) ||
+      ALLOWED_CHAT_EXTENSIONS.has(ext)
+    ) {
+      return cb(null, true);
+    }
+    return cb(new Error("Unsupported file type. Allowed: images, PDF, DOC, DOCX, TXT."));
+  },
+});
+
+const uploadBufferToCloudinary = (buffer, options) =>
+  new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(options, (error, result) => {
+      if (error) return reject(error);
+      resolve(result);
+    });
+    stream.end(buffer);
+  });
+
+const buildCloudinaryDownloadCandidates = (fileUrl) => {
+  const candidates = [];
+  const match = fileUrl.match(/\/(raw|image|video)\/upload\/(?:v\d+\/)?(.+)$/);
+  if (match) {
+    const resourceType = match[1];
+    const rawPath = decodeURIComponent(match[2].split("?")[0]);
+
+    if (resourceType === "raw") {
+      candidates.push(
+        cloudinary.utils.private_download_url(rawPath, undefined, {
+          resource_type: "raw",
+          type: "upload",
+        })
+      );
+    } else {
+      const lastSlash = rawPath.lastIndexOf("/");
+      const lastDot = rawPath.lastIndexOf(".");
+      const hasExt = lastDot > lastSlash;
+      const publicId = hasExt ? rawPath.slice(0, lastDot) : rawPath;
+      const format = hasExt ? rawPath.slice(lastDot + 1) : undefined;
+
+      candidates.push(
+        cloudinary.utils.private_download_url(publicId, format, {
+          resource_type: resourceType,
+          type: "upload",
+        })
+      );
+      candidates.push(
+        cloudinary.url(rawPath, {
+          resource_type: resourceType,
+          type: "upload",
+          sign_url: true,
+          secure: true,
+        })
+      );
+    }
+  }
+  candidates.push(fileUrl);
+  return [...new Set(candidates.filter(Boolean))];
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/chat/upload — Media / Document Upload
 // ─────────────────────────────────────────────────────────────────────────────
 router.post("/upload", protect, (req, res) => {
-  upload.single("file")(req, res, (err) => {
+  chatUpload.single("file")(req, res, async (err) => {
     if (err) {
-      console.error("Upload multer/storage error:", err);
+      console.error("Upload multer error:", err);
       return res.status(400).json({ error: err.message || "Failed to upload file" });
     }
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
-    const isImage = req.file.mimetype?.startsWith("image/");
-    return res.json({
-      url: req.file.path,
-      fileType: isImage ? "image" : "file",
-      fileName: req.file.originalname,
-      fileSize: req.file.size,
-    });
+    try {
+      const isImage = req.file.mimetype?.startsWith("image/");
+      const ext = path.extname(req.file.originalname || "").toLowerCase();
+
+      // Upload images as "image" and PDFs/documents as "raw" so Cloudinary
+      // serves documents publicly from /raw/upload/ without PDF delivery blocks.
+      const uploadOptions = isImage
+        ? {
+            folder: "chat_attachments",
+            resource_type: "image",
+            type: "upload",
+          }
+        : {
+            folder: "chat_attachments",
+            resource_type: "raw",
+            type: "upload",
+            public_id: `${uuidv4()}${ext}`,
+          };
+
+      const result = await uploadBufferToCloudinary(req.file.buffer, uploadOptions);
+
+      return res.json({
+        url: result.secure_url,
+        fileType: isImage ? "image" : "file",
+        fileName: req.file.originalname,
+        fileSize: req.file.size,
+      });
+    } catch (uploadErr) {
+      console.error("Chat Cloudinary upload error:", uploadErr);
+      return res.status(500).json({ error: uploadErr.message || "Failed to upload file" });
+    }
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/chat/download — Authenticated attachment download (supports old & new)
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/download", protect, async (req, res) => {
+  try {
+    const rawUrl = typeof req.query.url === "string" ? req.query.url.trim() : "";
+    const requestedName = typeof req.query.fileName === "string" ? req.query.fileName.trim() : "";
+
+    if (!rawUrl) {
+      return res.status(400).json({ error: "Attachment URL is required" });
+    }
+
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(rawUrl);
+    } catch {
+      return res.status(400).json({ error: "Invalid attachment URL" });
+    }
+
+    const expectedCloud = process.env.CLOUDINARY_CLOUD_NAME;
+    const isValidCloudinary =
+      (parsedUrl.protocol === "https:" || parsedUrl.protocol === "http:") &&
+      parsedUrl.hostname === "res.cloudinary.com" &&
+      (!expectedCloud || parsedUrl.pathname.startsWith(`/${expectedCloud}/`));
+
+    if (!isValidCloudinary) {
+      return res.status(400).json({ error: "Unsupported attachment host" });
+    }
+
+    const normalizedUrl = rawUrl.replace(/^http:\/\//i, "https://");
+    const candidates = buildCloudinaryDownloadCandidates(normalizedUrl);
+    let upstreamRes = null;
+
+    for (const candidateUrl of candidates) {
+      try {
+        const attempt = await fetch(candidateUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0",
+          },
+        });
+        if (attempt.ok) {
+          upstreamRes = attempt;
+          break;
+        }
+        console.warn("Chat download candidate failed:", attempt.status, candidateUrl.split("?")[0]);
+      } catch (fetchErr) {
+        console.warn("Chat download candidate error:", fetchErr.message);
+      }
+    }
+
+    if (!upstreamRes) {
+      return res.status(502).json({ error: "Unable to fetch attachment from storage" });
+    }
+
+    const fallbackName = decodeURIComponent(path.basename(parsedUrl.pathname)) || "attachment";
+    const safeName = (requestedName || fallbackName)
+      .replace(/[\r\n"]/g, "_")
+      .trim() || "attachment";
+
+    let contentType = upstreamRes.headers.get("content-type") || "application/octet-stream";
+    if (
+      (contentType === "application/octet-stream" || contentType === "text/plain") &&
+      (safeName.toLowerCase().endsWith(".pdf") || parsedUrl.pathname.toLowerCase().endsWith(".pdf"))
+    ) {
+      contentType = "application/pdf";
+    }
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`
+    );
+    res.setHeader("Cache-Control", "private, max-age=300");
+
+    if (upstreamRes.body && typeof Readable.fromWeb === "function") {
+      const nodeStream = Readable.fromWeb(upstreamRes.body);
+      nodeStream.on("error", (streamErr) => {
+        console.error("Chat download stream error:", streamErr);
+        if (!res.headersSent) {
+          res.status(500).end();
+        } else {
+          res.destroy(streamErr);
+        }
+      });
+      return nodeStream.pipe(res);
+    }
+
+    const buffer = Buffer.from(await upstreamRes.arrayBuffer());
+    return res.send(buffer);
+  } catch (err) {
+    console.error("Chat attachment download error:", err);
+    if (!res.headersSent) {
+      return res.status(500).json({ error: "Failed to download attachment" });
+    }
+  }
 });
 
 export default router;

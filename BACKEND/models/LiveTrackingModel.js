@@ -43,7 +43,11 @@ const workingScreenshotSchema = new mongoose.Schema(
 // ---------------------------------------------------
 const dailyLiveSchema = new mongoose.Schema(
     {
-        currentStatus: { type: String, enum: ["WORKING", "IDLE", "OFFLINE"], default: "OFFLINE" },
+        currentStatus: { 
+            type: String, 
+            enum: ["WORKING", "IDLE", "OFFLINE", "OUT_OF_HOURS", "BREAK"], 
+            default: "OFFLINE" 
+        },
         lastPing: { type: Date },
         idleSince: { type: Date, default: null },
         activeWindow: { type: String, default: null },

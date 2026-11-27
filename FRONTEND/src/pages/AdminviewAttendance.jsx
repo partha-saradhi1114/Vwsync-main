@@ -7,6 +7,11 @@ import { FaCalendarAlt, FaUsers, FaFileExcel, FaClock, FaCheckCircle, FaEye, FaT
 import { toBlob } from 'html-to-image';
 import { io } from "socket.io-client";
 import ModalWrapper from "../components/ModalWrapper";
+import {
+  getEmployeeJoiningDateStr,
+  isDateBeforeJoining,
+  normalizeJoiningDateStr,
+} from "../utils/attendanceDateUtils";
 
 const SOCKET_URL =
   import.meta.env.MODE === "production"
@@ -332,6 +337,7 @@ const PerformanceModal = ({ isOpen, onClose, allEmployees, shiftsMap, holidays, 
           const shift = shiftsMap[emp.employeeId];
           const weeklyOffs = shift?.weeklyOffDays || [0];
           const adminFullDayHours = shift?.fullDayHours || 9;
+          const joiningDateStr = getEmployeeJoiningDateStr(emp);
           
           let empStats = {
             employeeId: emp.employeeId,
@@ -365,7 +371,7 @@ const PerformanceModal = ({ isOpen, onClose, allEmployees, shiftsMap, holidays, 
               if (record.status === "ABSENT" || wStat.includes("Absent")) {
                 empStats.absentDays++;
               }
-            } else if (!holidayObj && !isWeeklyOff) {
+            } else if (!holidayObj && !isWeeklyOff && !isDateBeforeJoining(dateStr, joiningDateStr)) {
               empStats.absentDays++;
             }
           }
@@ -601,11 +607,15 @@ const AttendanceDetailModal = ({ isOpen, onClose, employeeData, shiftsMap, holid
     const weeklyOffs = shift?.weeklyOffDays || [0];
     const adminFullDayHours = shift?.fullDayHours || 9;
     const adminHalfDayHours = shift?.halfDayHours || 4.5;
+    const joiningDateStr = normalizeJoiningDateStr(employeeData.joiningDate);
 
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
       const dayOfWeek = d.getDay();
       const record = employeeData.records.find(r => normalizeDateStr(r.date) === dateStr);
+      if (!record && isDateBeforeJoining(dateStr, joiningDateStr)) {
+        continue;
+      }
       const holidayObj = isHoliday(dateStr, holidays);
       const isWeeklyOff = weeklyOffs.includes(dayOfWeek);
       const isWorkingDay = !holidayObj && !isWeeklyOff;
@@ -1248,7 +1258,9 @@ const AdminAttendance = () => {
         completed: data.completedCount,
         onBreak: data.onBreakCount,
         presentIds: data.presentIds,
-        absent: allEmployees.filter(e => e.isActive !== false && !data.presentIds.includes(e.employeeId)).length
+        absent: allEmployees.filter(
+          e => e.isActive !== false && !data.presentIds.includes(e.employeeId) && !isDateBeforeJoining(date, getEmployeeJoiningDateStr(e))
+        ).length
       });
     } catch (err) { console.error(err); }
   }, [allEmployees]);
@@ -1445,6 +1457,7 @@ const AdminAttendance = () => {
 
     return paginatedEmployeesForSummary.map(emp => {
       const shift = shiftsMap[emp.employeeId]; const weeklyOffs = shift?.weeklyOffDays || [0]; const adminFullDayHours = shift?.fullDayHours || 9;
+      const joiningDateStr = getEmployeeJoiningDateStr(emp);
       let stats = { employeeId: emp.employeeId, employeeName: emp.name, assignedHours: adminFullDayHours, presentDays: 0, onTimeDays: 0, lateDays: 0, fullDays: 0, halfDays: 0, absentDays: 0, approvedOT: approvedOTCounts[emp.employeeId] || 0 };
       const start = new Date(summaryStartDate); const end = new Date(summaryEndDate);
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -1453,7 +1466,7 @@ const AdminAttendance = () => {
           if (record.punchIn) { stats.presentDays++; if (calculateLoginStatus(record.punchIn, shift, record.loginStatus) === 'LATE') stats.lateDays++; else stats.onTimeDays++; }
           const wStat = getWorkedStatus(record.punchIn, record.punchOut, record.status, adminFullDayHours, shift?.halfDayHours || 4.5);
           if (wStat === "Full Day") stats.fullDays++; else if (wStat === "Half Day") stats.halfDays++; else if (record.status === "ABSENT" || wStat.includes("Absent")) stats.absentDays++;
-        } else if (!holidayObj && !isWeeklyOff) stats.absentDays++;
+        } else if (!holidayObj && !isWeeklyOff && !isDateBeforeJoining(dateStr, joiningDateStr)) stats.absentDays++;
       }
       return stats;
     });
@@ -1525,6 +1538,7 @@ const AdminAttendance = () => {
       }, {});
       const fullSummary = activeEmps.map(emp => {
         const shift = shiftsMap[emp.employeeId]; const weeklyOffs = shift?.weeklyOffDays || [0]; const adminFullDayHours = shift?.fullDayHours || 9;
+        const joiningDateStr = getEmployeeJoiningDateStr(emp);
         let stats = { employeeId: emp.employeeId, employeeName: emp.name, assignedHours: adminFullDayHours, presentDays: 0, onTimeDays: 0, lateDays: 0, fullDays: 0, halfDays: 0, absentDays: 0, approvedOT: approvedOTCounts[emp.employeeId] || 0 };
         const start = new Date(summaryStartDate); const end = new Date(summaryEndDate);
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -1533,7 +1547,7 @@ const AdminAttendance = () => {
             if (record.punchIn) { stats.presentDays++; if (calculateLoginStatus(record.punchIn, shift, record.loginStatus) === 'LATE') stats.lateDays++; else stats.onTimeDays++; }
             const wStat = getWorkedStatus(record.punchIn, record.punchOut, record.status, adminFullDayHours, shift?.halfDayHours || 4.5);
             if (wStat === "Full Day") stats.fullDays++; else if (wStat === "Half Day") stats.halfDays++; else if (record.status === "ABSENT" || wStat.includes("Absent")) stats.absentDays++;
-          } else if (!holidayObj && !isWeeklyOff) stats.absentDays++;
+          } else if (!holidayObj && !isWeeklyOff && !isDateBeforeJoining(dateStr, joiningDateStr)) stats.absentDays++;
         }
         return stats;
       });
@@ -1564,14 +1578,17 @@ const AdminAttendance = () => {
   const handleViewDetails = async (employeeId, employeeName) => {
     try {
       const { data } = await api.post(`/api/attendance/admin/date-range-for-employees`, { start: summaryStartDate, end: summaryEndDate, employeeIds: [employeeId] });
-      setSelectedEmployee({ name: employeeName, records: data, employeeId, startDate: summaryStartDate, endDate: summaryEndDate });
+      const empRecord = allEmployees.find(e => e.employeeId === employeeId);
+      setSelectedEmployee({ name: employeeName, records: data, employeeId, joiningDate: getEmployeeJoiningDateStr(empRecord), startDate: summaryStartDate, endDate: summaryEndDate });
       setIsModalOpen(true);
     } catch (e) { }
   };
 
   const handleOpenStatusModal = async (type) => {
     if (type === 'ABSENT') {
-      const absentList = allEmployees.filter(e => e.isActive !== false && !dailyCounts.presentIds.includes(e.employeeId));
+      const absentList = allEmployees.filter(
+        e => e.isActive !== false && !dailyCounts.presentIds.includes(e.employeeId) && !isDateBeforeJoining(startDate, getEmployeeJoiningDateStr(e))
+      );
       setStatusListModal({ isOpen: true, title: "Login Required", employees: absentList, loading: false });
     } else {
       setStatusListModal({ isOpen: true, title: "Loading...", employees: [], loading: true });

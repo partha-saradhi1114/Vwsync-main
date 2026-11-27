@@ -13,6 +13,10 @@ import {
   getAllShifts
 } from "../api";
 import Pagination from "../components/Pagination";
+import {
+  getEmployeeJoiningDateStr,
+  isDateBeforeJoining,
+} from "../utils/attendanceDateUtils";
 
 // --- HELPER FUNCTIONS ---
 
@@ -88,6 +92,7 @@ const LEAVE_SUMMARY_ITEMS_PER_PAGE = 10;
 const AdminLeaveSummary = () => {
   const [allRequests, setAllRequests] = useState([]);
   const [employeesMap, setEmployeesMap] = useState(new Map());
+  const [employeeJoiningMap, setEmployeeJoiningMap] = useState(new Map());
   const [holidays, setHolidays] = useState([]);
 
   // NEW: Separated Year and Month state
@@ -141,6 +146,9 @@ const AdminLeaveSummary = () => {
           activeEmployees.map((emp) => [emp.employeeId, emp.name])
         );
         setEmployeesMap(empMap);
+        setEmployeeJoiningMap(
+          new Map(activeEmployees.map((emp) => [emp.employeeId, getEmployeeJoiningDateStr(emp)]))
+        );
 
         const sMap = {};
         if (Array.isArray(shiftsData)) {
@@ -275,6 +283,7 @@ const AdminLeaveSummary = () => {
       );
 
       const absents = [];
+      const joiningDateStr = employeeJoiningMap.get(empId) || null;
       const shift = shiftsMap[empId] || { weeklyOffDays: [0] };
       const weeklyOffs = shift.weeklyOffDays || [0];
 
@@ -318,6 +327,8 @@ const AdminLeaveSummary = () => {
       for (let d = new Date(loopStart); d <= loopEnd; d.setDate(d.getDate() + 1)) {
         const dateStr = formatDate(d);
         const dayOfWeek = d.getDay();
+
+        if (isDateBeforeJoining(dateStr, joiningDateStr)) continue;
 
         const isHol = holidays.some(h => {
           const startStr = formatDate(h.startDate);
@@ -385,7 +396,7 @@ const AdminLeaveSummary = () => {
         rawAbsents: absents
       };
     });
-  }, [enrichedRequests, employeesMap, selectedYear, selectedMonth, holidays, rawAttendance, shiftsMap, availableYears]);
+  }, [enrichedRequests, employeesMap, employeeJoiningMap, selectedYear, selectedMonth, holidays, rawAttendance, shiftsMap, availableYears]);
 
   const filteredEmployeeStats = useMemo(() => {
     let filtered = [...employeeStats];

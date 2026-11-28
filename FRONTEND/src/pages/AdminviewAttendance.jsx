@@ -9,6 +9,7 @@ import { io } from "socket.io-client";
 import ModalWrapper from "../components/ModalWrapper";
 import {
   getEmployeeJoiningDateStr,
+  isCountedAsPresent,
   isDateBeforeJoining,
   normalizeJoiningDateStr,
 } from "../utils/attendanceDateUtils";
@@ -359,15 +360,17 @@ const PerformanceModal = ({ isOpen, onClose, allEmployees, shiftsMap, holidays, 
             const isWeeklyOff = weeklyOffs.includes(d.getDay());
 
             if (record) {
+              const wStat = getWorkedStatus(record.punchIn, record.punchOut, record.status, adminFullDayHours, shift?.halfDayHours || 4.5);
               if (record.punchIn) {
-                empStats.presentDays++;
+                if (isCountedAsPresent(record.punchIn, wStat, record.status)) {
+                  empStats.presentDays++;
+                }
                 if (calculateLoginStatus(record.punchIn, shift, record.loginStatus) === 'LATE') {
                   empStats.lateDays++;
                 } else {
                   empStats.onTimeDays++;
                 }
               }
-              const wStat = getWorkedStatus(record.punchIn, record.punchOut, record.status, adminFullDayHours, shift?.halfDayHours || 4.5);
               if (record.status === "ABSENT" || wStat.includes("Absent")) {
                 empStats.absentDays++;
               }
@@ -636,7 +639,7 @@ const AttendanceDetailModal = ({ isOpen, onClose, employeeData, shiftsMap, holid
         else if (holidayObj) { workedStatus = `Holiday: ${holidayObj.name}`; rowClass = "bg-purple-50/30 text-purple-700 hover:bg-purple-50"; shiftDuration = 0; }
         else if (isWeeklyOff) { workedStatus = "Weekly Off"; rowClass = "bg-gray-50 text-gray-500 hover:bg-gray-100"; shiftDuration = 0; }
       }
-      history.push({ date: dateStr, punchIn, punchOut, shiftHours: shiftDuration, actualWorkedHours, displayTime, loginStatus, workedStatus, isWorkingDay, isAbsent: workedStatus.includes("Absent"), isFullDay: workedStatus === "Full Day", isHalfDay: workedStatus === "Half Day", isPresent: !!punchIn, rowClass });
+      history.push({ date: dateStr, punchIn, punchOut, shiftHours: shiftDuration, actualWorkedHours, displayTime, loginStatus, workedStatus, isWorkingDay, isAbsent: workedStatus.includes("Absent"), isFullDay: workedStatus === "Full Day", isHalfDay: workedStatus === "Half Day", isPresent: isCountedAsPresent(punchIn, workedStatus, record?.status), rowClass });
     }
     return history.sort((a, b) => new Date(b.date) - new Date(a.date));
   }, [isOpen, employeeData, shiftsMap, holidays, dateRange]);
@@ -1463,8 +1466,8 @@ const AdminAttendance = () => {
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         const dateStr = d.toISOString().split('T')[0]; const key = `${emp.employeeId}_${dateStr}`; const record = attendanceMap.get(key); const holidayObj = isHoliday(dateStr, holidays); const isWeeklyOff = weeklyOffs.includes(d.getDay());
         if (record) {
-          if (record.punchIn) { stats.presentDays++; if (calculateLoginStatus(record.punchIn, shift, record.loginStatus) === 'LATE') stats.lateDays++; else stats.onTimeDays++; }
           const wStat = getWorkedStatus(record.punchIn, record.punchOut, record.status, adminFullDayHours, shift?.halfDayHours || 4.5);
+          if (record.punchIn) { if (isCountedAsPresent(record.punchIn, wStat, record.status)) stats.presentDays++; if (calculateLoginStatus(record.punchIn, shift, record.loginStatus) === 'LATE') stats.lateDays++; else stats.onTimeDays++; }
           if (wStat === "Full Day") stats.fullDays++; else if (wStat === "Half Day") stats.halfDays++; else if (record.status === "ABSENT" || wStat.includes("Absent")) stats.absentDays++;
         } else if (!holidayObj && !isWeeklyOff && !isDateBeforeJoining(dateStr, joiningDateStr)) stats.absentDays++;
       }
@@ -1544,8 +1547,8 @@ const AdminAttendance = () => {
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
           const dateStr = d.toISOString().split('T')[0]; const key = `${emp.employeeId}_${dateStr}`; const record = attendanceMap.get(key); const holidayObj = isHoliday(dateStr, holidays); const isWeeklyOff = weeklyOffs.includes(d.getDay());
           if (record) {
-            if (record.punchIn) { stats.presentDays++; if (calculateLoginStatus(record.punchIn, shift, record.loginStatus) === 'LATE') stats.lateDays++; else stats.onTimeDays++; }
             const wStat = getWorkedStatus(record.punchIn, record.punchOut, record.status, adminFullDayHours, shift?.halfDayHours || 4.5);
+            if (record.punchIn) { if (isCountedAsPresent(record.punchIn, wStat, record.status)) stats.presentDays++; if (calculateLoginStatus(record.punchIn, shift, record.loginStatus) === 'LATE') stats.lateDays++; else stats.onTimeDays++; }
             if (wStat === "Full Day") stats.fullDays++; else if (wStat === "Half Day") stats.halfDays++; else if (record.status === "ABSENT" || wStat.includes("Absent")) stats.absentDays++;
           } else if (!holidayObj && !isWeeklyOff && !isDateBeforeJoining(dateStr, joiningDateStr)) stats.absentDays++;
         }

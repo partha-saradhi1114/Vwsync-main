@@ -103,3 +103,16 @@ export const isDateBeforeJoining = (dateStr, joiningDateStr) => {
   if (!dateStr || !joiningDateStr) return false;
   return dateStr < joiningDateStr;
 };
+
+/**
+ * Returns true only when a day has a punch-in and is not classified as Absent
+ * (e.g. Full Day, Half Day, or Working..). Prevents < halfDayHours days from
+ * being counted as both Present and Absent.
+ */
+export const isCountedAsPresent = (punchIn, workedStatus, apiStatus) => {
+  if (!punchIn) return false;
+  const statusUpper = typeof apiStatus === "string" ? apiStatus.toUpperCase() : "";
+  if (statusUpper === "ABSENT") return false;
+  if (typeof workedStatus === "string" && workedStatus.includes("Absent")) return false;
+  return true;
+};

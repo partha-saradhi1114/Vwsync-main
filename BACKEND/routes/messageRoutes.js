@@ -198,21 +198,42 @@ const unreadMessageEmail = ({ senderName, receiverName, messagePreview }) => `
    PARTICIPANT RESOLVER HELPER
    Resolves any userId across Employee, SupportAdmin, and Admin
 =============================================================== */
+// Helper to extract true department and job role/designation from employee record
+const extractEmployeeDeptAndRole = (emp) => {
+  if (!emp) return { department: "General", positionName: "Employee" };
+  const currExp =
+    emp.experienceDetails?.find((e) => e.lastWorkingDate === "Present" || !e.lastWorkingDate) ||
+    (Array.isArray(emp.experienceDetails) && emp.experienceDetails.length > 0 ? emp.experienceDetails[emp.experienceDetails.length - 1] : null);
+
+  const resolvedDept =
+    (emp.department && emp.department.trim().toLowerCase() !== "general")
+      ? emp.department.trim()
+      : (emp.currentDepartment?.trim() || currExp?.department?.trim() || emp.department?.trim() || "General");
+
+  const resolvedRole =
+    (emp.currentRole && emp.currentRole.trim().toLowerCase() !== "employee")
+      ? emp.currentRole.trim()
+      : (currExp?.role?.trim() || emp.designation?.trim() || emp.currentRole?.trim() || (emp.role && emp.role !== "employee" ? emp.role : "Employee"));
+
+  return { department: resolvedDept, positionName: resolvedRole };
+};
+
 const resolveParticipant = async (userId) => {
   if (!userId || !mongoose.Types.ObjectId.isValid(userId)) return null;
 
   try {
     const emp = await Employee.findById(userId)
-      .select("name email employeeId department currentDepartment currentRole profileImageUrl adminId company lastSeen")
+      .select("name email employeeId department currentDepartment currentRole role experienceDetails designation profileImageUrl adminId company lastSeen updatedAt createdAt")
       .lean();
     if (emp) {
+      const { department, positionName } = extractEmployeeDeptAndRole(emp);
       return {
         _id: emp._id,
         name: emp.name || "Employee",
         email: emp.email || "",
         employeeId: emp.employeeId || "",
-        department: emp.department || emp.currentDepartment || "General",
-        positionName: emp.currentRole || "Employee",
+        department,
+        positionName,
         role: "employee",
         userType: "Employee",
         profileImageUrl: emp.profileImageUrl || null,
@@ -300,7 +321,7 @@ router.get("/contacts", protect, async (req, res) => {
       empQuery.company = req.user.company;
     }
     const employees = await Employee.find(empQuery)
-      .select("name email employeeId department currentDepartment currentRole profileImageUrl lastSeen updatedAt createdAt")
+      .select("name email employeeId department currentDepartment currentRole role experienceDetails designation profileImageUrl lastSeen updatedAt createdAt")
       .lean();
 
     // 2. Fetch SupportAdmins (Managers / Administration)
@@ -324,13 +345,14 @@ router.get("/contacts", protect, async (req, res) => {
     // Normalize Employees
     employees.forEach((emp) => {
       if (emp._id.toString() === myId) return;
+      const { department, positionName } = extractEmployeeDeptAndRole(emp);
       contacts.push({
         _id: emp._id,
         name: emp.name || "Employee",
         email: emp.email || "",
         employeeId: emp.employeeId || "",
-        department: emp.department || emp.currentDepartment || "General",
-        positionName: emp.currentRole || "Employee",
+        department,
+        positionName,
         role: "employee",
         userType: "Employee",
         profileImageUrl: emp.profileImageUrl || null,
@@ -804,7 +826,7 @@ router.put("/read/:senderId", protect, async (req, res) => {
     const io = getIO(req);
     if (io) {
       io.to(`user_${senderId}`).emit("messages_read", {
-        readBy:   me.toString(),
+        readBy:   meStr,
         senderId,
       });
     }
@@ -2169,38 +2191,103 @@ router.post("/messages/:messageId/react", protect, async (req, res) => {
 // Chat Attachment Storage & Helpers (isolated from shared config/cloudinary.js)
 // ─────────────────────────────────────────────────────────────────────────────
 const ALLOWED_CHAT_MIME_TYPES = new Set([
+  // Images
   "image/jpeg",
   "image/jpg",
   "image/png",
   "image/gif",
   "image/webp",
+  // Videos
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/x-matroska",
+  "video/ogg",
+  "video/avi",
+  "video/x-msvideo",
+  "video/3gpp",
+  // Audio
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/wave",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/m4a",
+  "audio/aac",
+  "audio/ogg",
+  "audio/opus",
+  "audio/webm",
+  "audio/weba",
+  // Documents & Presentations
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/rtf",
+  "text/rtf",
+  "application/vnd.oasis.opendocument.text",
+  "application/vnd.oasis.opendocument.presentation",
+  "application/vnd.oasis.opendocument.spreadsheet",
   "text/plain",
   "text/csv",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  // Code, Logs & Data
+  "application/json",
+  "text/json",
+  "application/xml",
+  "text/xml",
+  "text/markdown",
+  "text/x-markdown",
+  "application/sql",
+  "text/x-sql",
+  // Compressed Archives
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/x-zip",
+  "application/x-rar-compressed",
+  "application/vnd.rar",
+  "application/x-rar",
+  "application/x-7z-compressed",
+  "application/x-tar",
+  "application/gzip",
+  "application/octet-stream",
 ]);
 
 const ALLOWED_CHAT_EXTENSIONS = new Set([
-  ".jpg", ".jpeg", ".png", ".gif", ".webp",
-  ".pdf", ".doc", ".docx", ".txt", ".csv", ".xls", ".xlsx",
+  // Images
+  ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg",
+  // Videos
+  ".mp4", ".webm", ".mov", ".mkv", ".avi",
+  // Audio
+  ".mp3", ".wav", ".m4a", ".aac", ".ogg", ".weba",
+  // Documents & Presentations
+  ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".rtf", ".odt", ".odp", ".ods", ".xls", ".xlsx", ".txt",
+  // Code, Logs & Data
+  ".csv", ".json", ".xml", ".log", ".md", ".sql", ".yaml", ".yml",
+  // Compressed Archives
+  ".zip", ".rar", ".7z", ".tar", ".gz",
 ]);
 
 const chatUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname || "").toLowerCase();
+    const mime = (file.mimetype || "").toLowerCase();
     if (
-      file.mimetype?.startsWith("image/") ||
-      ALLOWED_CHAT_MIME_TYPES.has(file.mimetype) ||
+      mime.startsWith("image/") ||
+      mime.startsWith("video/") ||
+      mime.startsWith("audio/") ||
+      ALLOWED_CHAT_MIME_TYPES.has(mime) ||
       ALLOWED_CHAT_EXTENSIONS.has(ext)
     ) {
       return cb(null, true);
     }
-    return cb(new Error("Unsupported file type. Allowed: images, PDF, DOC, DOCX, TXT."));
+    return cb(new Error("Unsupported file type. Allowed: images, videos, audio, documents, presentations (PPT/PPTX), code/data (CSV, JSON, XML, LOG, MD), and archives (ZIP, RAR, 7Z)."));
   },
 });
 
@@ -2268,30 +2355,52 @@ router.post("/upload", protect, (req, res) => {
     }
 
     try {
-      const isImage = req.file.mimetype?.startsWith("image/");
+      const mime = (req.file.mimetype || "").toLowerCase();
       const ext = path.extname(req.file.originalname || "").toLowerCase();
+      const originalName = (req.file.originalname || "").toLowerCase();
 
-      // Upload images as "image" and PDFs/documents as "raw" so Cloudinary
-      // serves documents publicly from /raw/upload/ without PDF delivery blocks.
-      const uploadOptions = isImage
-        ? {
-            folder: "chat_attachments",
-            resource_type: "image",
-            type: "upload",
-          }
-        : {
-            folder: "chat_attachments",
-            resource_type: "raw",
-            type: "upload",
-            public_id: `${uuidv4()}${ext}`,
-          };
+      const isImage = mime.startsWith("image/") || [".jpg", ".jpeg", ".png", ".gif", ".webp"].includes(ext);
+      const isAudio =
+        mime.startsWith("audio/") ||
+        originalName.startsWith("voice_note") ||
+        [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".weba"].includes(ext);
+      const isVideo =
+        !isAudio && (mime.startsWith("video/") || [".mp4", ".webm", ".mov", ".mkv"].includes(ext));
+
+      // Upload:
+      // - Images as "image"
+      // - Videos & Audios as "video" (Cloudinary standard handles audio under video API)
+      // - Documents / PDFs / spreadsheets as "raw"
+      let uploadOptions;
+      if (isImage) {
+        uploadOptions = {
+          folder: "chat_attachments",
+          resource_type: "image",
+          type: "upload",
+        };
+      } else if (isVideo || isAudio) {
+        uploadOptions = {
+          folder: "chat_attachments",
+          resource_type: "video",
+          type: "upload",
+        };
+      } else {
+        uploadOptions = {
+          folder: "chat_attachments",
+          resource_type: "raw",
+          type: "upload",
+          public_id: `${uuidv4()}${ext}`,
+        };
+      }
 
       const result = await uploadBufferToCloudinary(req.file.buffer, uploadOptions);
 
+      const fileType = isImage ? "image" : isAudio ? "audio" : isVideo ? "video" : "file";
+
       return res.json({
         url: result.secure_url,
-        fileType: isImage ? "image" : "file",
-        fileName: req.file.originalname,
+        fileType,
+        fileName: req.file.originalname || (isVideo ? "video.mp4" : isAudio ? "audio.mp3" : "attachment"),
         fileSize: req.file.size,
       });
     } catch (uploadErr) {

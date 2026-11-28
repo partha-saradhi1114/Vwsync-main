@@ -11,7 +11,9 @@ import {
   FaEllipsisH, FaCheckDouble, FaCheck,
   FaCommentDots, FaPen, FaTrash, FaArrowLeft,
   FaPaperclip, FaPlus, FaFileAlt, FaFilePdf, FaDownload,
-  FaImage, FaUserFriends, FaCircle, FaUserPlus, FaEraser, FaSignOutAlt
+  FaImage, FaUserFriends, FaCircle, FaUserPlus, FaEraser, FaSignOutAlt,
+  FaVideo, FaMicrophone, FaMusic, FaPlay, FaPause,
+  FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileCode, FaFileArchive, FaArchive
 } from "react-icons/fa";
 
 const SOCKET_URL =
@@ -34,6 +36,344 @@ const formatFileSize = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 };
 
+const formatAudioTime = (secs) => {
+  if (!secs || isNaN(secs) || !isFinite(secs) || secs < 0) return "0:00";
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m}:${s < 10 ? "0" : ""}${s}`;
+};
+
+const isVoiceNoteAttachment = (att) => {
+  if (!att) return false;
+  const name = (att.fileName || "").toLowerCase();
+  return name.startsWith("voice_note") || att.fileType === "voice_note" || att.isVoiceNote === true;
+};
+
+const isAudioAttachment = (att) => {
+  if (!att) return false;
+  if (isVoiceNoteAttachment(att)) return true;
+  if (att.fileType === "audio") return true;
+  const ext = (att.fileName || att.url || "").split("?")[0].split(".").pop().toLowerCase();
+  return ["mp3", "wav", "m4a", "aac", "ogg", "weba"].includes(ext);
+};
+
+const isVideoAttachment = (att) => {
+  if (!att) return false;
+  if (isAudioAttachment(att)) return false; // Audio or voice notes are NEVER video
+  if (att.fileType === "video") return true;
+  const ext = (att.fileName || att.url || "").split("?")[0].split(".").pop().toLowerCase();
+  return ["mp4", "webm", "mov", "mkv", "avi"].includes(ext);
+};
+
+const isImageAttachment = (att) => {
+  if (!att) return false;
+  if (att.fileType === "image") return true;
+  const ext = (att.fileName || att.url || "").split("?")[0].split(".").pop().toLowerCase();
+  return ["jpg", "jpeg", "png", "gif", "webp", "svg"].includes(ext);
+};
+
+const isArchiveAttachment = (att) => {
+  if (!att) return false;
+  const ext = (att.fileName || att.url || "").split("?")[0].split(".").pop().toLowerCase();
+  return ["zip", "rar", "7z", "tar", "gz"].includes(ext);
+};
+
+const isPresentationAttachment = (att) => {
+  if (!att) return false;
+  const ext = (att.fileName || att.url || "").split("?")[0].split(".").pop().toLowerCase();
+  return ["ppt", "pptx", "odp"].includes(ext);
+};
+
+const isCodeOrDataAttachment = (att) => {
+  if (!att) return false;
+  const ext = (att.fileName || att.url || "").split("?")[0].split(".").pop().toLowerCase();
+  return ["json", "xml", "csv", "log", "md", "sql", "yaml", "yml"].includes(ext);
+};
+
+const getFileIconConfig = (att) => {
+  const ext = (att?.fileName || att?.url || "").split("?")[0].split(".").pop().toLowerCase();
+
+  // 1. Compressed Archives
+  if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) {
+    return {
+      icon: <FaFileArchive size={16} />,
+      bg: "bg-amber-500",
+      tag: ext.toUpperCase(),
+      tagBg: "bg-amber-100 text-amber-800",
+    };
+  }
+  // 2. Presentations
+  if (["ppt", "pptx", "odp"].includes(ext)) {
+    return {
+      icon: <FaFilePowerpoint size={16} />,
+      bg: "bg-orange-600",
+      tag: ext.toUpperCase(),
+      tagBg: "bg-orange-100 text-orange-800",
+    };
+  }
+  // 3. Code, Logs & Data
+  if (["json", "xml", "csv", "log", "md", "sql", "yaml", "yml"].includes(ext)) {
+    return {
+      icon: <FaFileCode size={16} />,
+      bg: "bg-indigo-600",
+      tag: ext.toUpperCase(),
+      tagBg: "bg-indigo-100 text-indigo-800",
+    };
+  }
+  // 4. Spreadsheets
+  if (["xls", "xlsx", "ods"].includes(ext)) {
+    return {
+      icon: <FaFileExcel size={16} />,
+      bg: "bg-emerald-600",
+      tag: ext.toUpperCase(),
+      tagBg: "bg-emerald-100 text-emerald-800",
+    };
+  }
+  // 5. PDF
+  if (ext === "pdf") {
+    return {
+      icon: <FaFilePdf size={16} />,
+      bg: "bg-rose-500",
+      tag: "PDF",
+      tagBg: "bg-rose-100 text-rose-800",
+    };
+  }
+  // 6. Word & Rich Text
+  if (["doc", "docx", "rtf", "odt", "txt"].includes(ext)) {
+    return {
+      icon: <FaFileWord size={16} />,
+      bg: "bg-blue-600",
+      tag: ext.toUpperCase(),
+      tagBg: "bg-blue-100 text-blue-800",
+    };
+  }
+  // Default fallback
+  return {
+    icon: <FaFileAlt size={16} />,
+    bg: "bg-slate-500",
+    tag: ext ? ext.toUpperCase() : "FILE",
+    tagBg: "bg-slate-100 text-slate-800",
+  };
+};
+
+const getAttachmentLabel = (attachments) => {
+  if (!attachments || !attachments.length) return "";
+  const first = attachments[0];
+  if (isVideoAttachment(first)) return "🎬 Video";
+  if (isAudioAttachment(first)) return "🎵 Audio";
+  if (isImageAttachment(first)) return "🖼️ Photo";
+  if (isArchiveAttachment(first)) return "📦 Archive";
+  if (isPresentationAttachment(first)) return "📊 Presentation";
+  if (isCodeOrDataAttachment(first)) return "💻 Code / Data";
+  return "📎 Document";
+};
+
+// ── Voice Note / Audio Waveform Player Component ─────────────────────────────
+const VoiceNotePlayer = ({ att, isMe, onDownload, isDownloading }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const initialDuration = att.duration && isFinite(att.duration) && att.duration > 0 ? att.duration : 0;
+  const [duration, setDuration] = useState(initialDuration);
+  const audioRef = useRef(null);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current
+        .play()
+        .then(() => setIsPlaying(true))
+        .catch((err) => console.error("Voice note play error:", err));
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    if (audioRef.current) {
+      const cur = audioRef.current.currentTime || 0;
+      setCurrentTime(cur);
+      const d = audioRef.current.duration;
+      if (isFinite(d) && !isNaN(d) && d > 0) {
+        setDuration(d);
+      } else if (cur > duration) {
+        setDuration(cur);
+      }
+    }
+  };
+
+  const handleLoadedMetadata = () => {
+    if (audioRef.current) {
+      const d = audioRef.current.duration;
+      if (isFinite(d) && !isNaN(d) && d > 0) {
+        setDuration(d);
+      } else if (d === Infinity) {
+        // Fast-forward seek trick for Chrome WebM streaming infinite duration
+        audioRef.current.currentTime = 1e101;
+        audioRef.current.ontimeupdate = () => {
+          if (audioRef.current) {
+            audioRef.current.ontimeupdate = null;
+            audioRef.current.currentTime = 0;
+            const updatedD = audioRef.current.duration;
+            if (isFinite(updatedD) && !isNaN(updatedD)) {
+              setDuration(updatedD);
+            }
+          }
+        };
+      }
+    }
+  };
+
+  const handleEnded = () => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+  };
+
+  const handleSeek = (e) => {
+    if (!audioRef.current || !duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const fraction = Math.max(0, Math.min(1, clickX / rect.width));
+    const newTime = fraction * duration;
+    audioRef.current.currentTime = newTime;
+    setCurrentTime(newTime);
+  };
+
+  const progress = duration > 0 ? currentTime / duration : 0;
+  const waveformBars = [35, 55, 80, 45, 95, 70, 40, 85, 100, 65, 45, 75, 90, 55, 35, 65, 85, 90, 60, 45, 75, 50, 35, 55];
+
+  return (
+    <div
+      className={`p-3 rounded-2xl ${
+        isMe
+          ? "bg-white/15 text-white"
+          : "bg-white text-slate-800 border border-slate-200/90 shadow-xs"
+      } min-w-[260px] max-w-sm select-none`}
+    >
+      <audio
+        ref={audioRef}
+        src={att.url}
+        preload="metadata"
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        onEnded={handleEnded}
+        className="hidden"
+      />
+
+      <div className="flex items-center gap-3">
+        {/* Play/Pause Button */}
+        <button
+          type="button"
+          onClick={togglePlay}
+          className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-transform active:scale-95 shadow-sm cursor-pointer ${
+            isMe
+              ? "bg-sky-600 text-white hover:bg-sky-700"
+              : "bg-sky-100 text-sky-700 hover:bg-sky-200"
+          }`}
+          title={isPlaying ? "Pause" : "Play"}
+        >
+          {isPlaying ? (
+            <FaPause size={12} />
+          ) : (
+            <FaPlay size={12} className="ml-0.5" />
+          )}
+        </button>
+
+        {/* Audio Waveform Scrubber */}
+        <div
+          onClick={handleSeek}
+          className="flex-1 flex items-center gap-[3px] h-8 cursor-pointer py-1"
+          title="Click to seek"
+        >
+          {waveformBars.map((heightPct, idx) => {
+            const barFraction = idx / waveformBars.length;
+            const isPlayed = barFraction <= progress;
+            return (
+              <span
+                key={idx}
+                style={{ height: `${heightPct}%` }}
+                className={`flex-1 rounded-full min-w-[2px] transition-colors ${
+                  isPlayed
+                    ? isMe
+                      ? "bg-sky-600"
+                      : "bg-sky-600"
+                    : isMe
+                    ? "bg-sky-300/60"
+                    : "bg-slate-200"
+                }`}
+              />
+            );
+          })}
+        </div>
+
+        {/* Download Icon on the side */}
+        <button
+          type="button"
+          onClick={onDownload}
+          disabled={isDownloading}
+          className={`p-2 rounded-xl transition-colors cursor-pointer flex-shrink-0 ${
+            isMe
+              ? "text-sky-700 hover:text-sky-900 hover:bg-sky-200/60"
+              : "text-slate-400 hover:text-sky-600 hover:bg-slate-100"
+          }`}
+          title="Download audio"
+        >
+          {isDownloading ? (
+            <FaSpinner size={13} className="animate-spin" />
+          ) : (
+            <FaDownload size={13} />
+          )}
+        </button>
+      </div>
+
+      {/* Bottom Row: Length & File Size side-by-side */}
+      <div className="flex items-center justify-between text-[11px] mt-1.5 px-0.5">
+        <span className={`font-medium ${isMe ? "text-sky-800/80" : "text-slate-500"}`}>
+          {duration > 0 && isFinite(duration)
+            ? `${formatAudioTime(currentTime)} / ${formatAudioTime(duration)}`
+            : formatAudioTime(currentTime)}
+          {att.fileSize > 0 && ` • ${formatFileSize(att.fileSize)}`}
+        </span>
+      </div>
+    </div>
+  );
+};
+
+const formatTimeWithAmPm = (timestamp) => {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return "";
+  let hours = date.getHours();
+  const minutes = date.getMinutes().toString().padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  return `${hours}:${minutes} ${ampm}`;
+};
+
+const getEmployeeRole = (emp) => {
+  if (!emp) return "Employee";
+  if (emp.positionName && emp.positionName.trim().toLowerCase() !== "employee") return emp.positionName.trim();
+  if (emp.currentRole && emp.currentRole.trim().toLowerCase() !== "employee") return emp.currentRole.trim();
+  const currExp =
+    emp.experienceDetails?.find((e) => e.lastWorkingDate === "Present" || !e.lastWorkingDate) ||
+    (Array.isArray(emp.experienceDetails) && emp.experienceDetails.length > 0 ? emp.experienceDetails[emp.experienceDetails.length - 1] : null);
+  if (currExp?.role && currExp.role.trim().toLowerCase() !== "employee") return currExp.role.trim();
+  if (emp.designation && emp.designation.trim().toLowerCase() !== "employee") return emp.designation.trim();
+  return emp.positionName || emp.currentRole || currExp?.role || (emp.role && emp.role !== "employee" ? emp.role : "Employee");
+};
+
+const getEmployeeDept = (emp) => {
+  if (!emp) return "General";
+  if (emp.department && emp.department.trim().toLowerCase() !== "general") return emp.department.trim();
+  if (emp.currentDepartment && emp.currentDepartment.trim().toLowerCase() !== "general") return emp.currentDepartment.trim();
+  const currExp =
+    emp.experienceDetails?.find((e) => e.lastWorkingDate === "Present" || !e.lastWorkingDate) ||
+    (Array.isArray(emp.experienceDetails) && emp.experienceDetails.length > 0 ? emp.experienceDetails[emp.experienceDetails.length - 1] : null);
+  if (currExp?.department && currExp.department.trim().toLowerCase() !== "general") return currExp.department.trim();
+  return emp.department || emp.currentDepartment || currExp?.department || "General";
+};
+
 const formatLastSeen = (timestamp) => {
   if (!timestamp) return "Last seen recently";
   const date = new Date(timestamp);
@@ -49,7 +389,7 @@ const formatLastSeen = (timestamp) => {
   yesterday.setDate(now.getDate() - 1);
   const isYesterday = date.toDateString() === yesterday.toDateString();
 
-  const timeStr = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const timeStr = formatTimeWithAmPm(date);
 
   if (isToday) return `Last seen today at ${timeStr}`;
   if (isYesterday) return `Last seen yesterday at ${timeStr}`;
@@ -162,6 +502,8 @@ const ConnectWithEmployee = () => {
   const [addingMembers, setAddingMembers] = useState(false);
   const [addMemberSearchTerm, setAddMemberSearchTerm] = useState("");
   const headerMenuRef = useRef(null);
+  const [reactionPickerMsgId, setReactionPickerMsgId] = useState(null);
+  const reactionPickerRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -174,6 +516,25 @@ const ConnectWithEmployee = () => {
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isHeaderMenuOpen]);
+
+  useEffect(() => {
+    const handleReactionOutside = (e) => {
+      if (reactionPickerRef.current && !reactionPickerRef.current.contains(e.target)) {
+        setReactionPickerMsgId(null);
+      }
+    };
+    const handleReactionEsc = (e) => {
+      if (e.key === "Escape") setReactionPickerMsgId(null);
+    };
+    if (reactionPickerMsgId) {
+      document.addEventListener("mousedown", handleReactionOutside);
+      document.addEventListener("keydown", handleReactionEsc);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleReactionOutside);
+      document.removeEventListener("keydown", handleReactionEsc);
+    };
+  }, [reactionPickerMsgId]);
 
   // ── Presence & Typing ────────────────────────────────────────────────────
   const [onlineUserIds, setOnlineUserIds] = useState(new Set());
@@ -210,6 +571,24 @@ const ConnectWithEmployee = () => {
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [downloadingAttachmentKey, setDownloadingAttachmentKey] = useState(null);
   const fileInputRef = useRef(null);
+
+  // ── Voice Recording State ────────────────────────────────────────────────
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [isUploadingVoice, setIsUploadingVoice] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
+  const audioStreamRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   // ── Refs ─────────────────────────────────────────────────────────────────
   const directChatEndRef = useRef(null);
@@ -909,6 +1288,7 @@ const ConnectWithEmployee = () => {
     setDirectMsgText("");
     setAttachedFiles([]);
     setOpenMenuId(null);
+    setReactionPickerMsgId(null);
     setTypingUsers(new Set());
     setDirectMessages([]);
 
@@ -945,6 +1325,7 @@ const ConnectWithEmployee = () => {
     setDirectMsgText("");
     setAttachedFiles([]);
     setOpenMenuId(null);
+    setReactionPickerMsgId(null);
     setGroupTypingUsers({});
     setDirectMessages([]);
 
@@ -1132,8 +1513,8 @@ const ConnectWithEmployee = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 25 * 1024 * 1024) {
-      toast.error("File size cannot exceed 25MB");
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error("File size cannot exceed 50MB");
       return;
     }
 
@@ -1147,7 +1528,12 @@ const ConnectWithEmployee = () => {
       });
 
       setAttachedFiles(prev => [...prev, data]);
-      toast.success("File attached", { icon: "📎" });
+      const isVid = isVideoAttachment(data);
+      const isAud = isAudioAttachment(data);
+      toast.success(
+        isVid ? "Video attached" : isAud ? "Audio attached" : "File attached",
+        { icon: isVid ? "🎬" : isAud ? "🎵" : "📎" }
+      );
     } catch (err) {
       console.error("Upload error:", err);
       toast.error(err.response?.data?.error || "Failed to upload file");
@@ -1198,6 +1584,193 @@ const ConnectWithEmployee = () => {
     setAttachedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
+  // ── Push-to-Talk / Voice Recording Handlers ──────────────────────────────
+  const startRecording = async () => {
+    if (isRecording) return;
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        toast.error("Audio recording is not supported in this browser");
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
+      audioChunksRef.current = [];
+
+      let mimeType = "";
+      if (typeof MediaRecorder.isTypeSupported === "function") {
+        if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+          mimeType = "audio/webm;codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/webm")) {
+          mimeType = "audio/webm";
+        } else if (MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")) {
+          mimeType = "audio/ogg;codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+          mimeType = "audio/mp4";
+        }
+      }
+
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.start(250);
+      setIsRecording(true);
+      setRecordingDuration(0);
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(prev => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("Microphone access error:", err);
+      toast.error("Microphone access was denied or is unavailable");
+    }
+  };
+
+  const stopRecordingCleanup = () => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach(track => track.stop());
+      audioStreamRef.current = null;
+    }
+    setIsRecording(false);
+    setRecordingDuration(0);
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.stop();
+    }
+    stopRecordingCleanup();
+    audioChunksRef.current = [];
+    toast("Voice recording cancelled", { icon: "🗑️" });
+  };
+
+  const sendVoiceNoteMessage = async (voiceAttachment) => {
+    if (!selectedChatUser && !selectedGroup) return;
+
+    const messageToSend = directMsgText.trim();
+    setDirectMsgText("");
+
+    const tempId = `temp_${Date.now()}`;
+    const optimisticMsg = {
+      _id: tempId,
+      message: messageToSend,
+      attachments: [voiceAttachment],
+      sender: { _id: currentUserId, name: user?.name },
+      createdAt: new Date().toISOString(),
+      isPending: true,
+      isSending: true,
+      isRead: false,
+    };
+
+    if (selectedChatUser) {
+      optimisticMsg.receiver = selectedChatUser._id;
+      setDirectMessages(prev => [...prev, optimisticMsg]);
+      setChatList(prev => {
+        const filtered = prev.filter(u => !sameId(u._id, selectedChatUser._id));
+        return [{
+          ...selectedChatUser,
+          lastMessage: messageToSend || "🎤 Voice message",
+          lastMessageTime: new Date().toISOString(),
+        }, ...filtered];
+      });
+
+      try {
+        const { data } = await api.post("/api/chat/send", {
+          receiverId: selectedChatUser._id,
+          message: messageToSend,
+          attachments: [voiceAttachment],
+        });
+        setDirectMessages(prev => {
+          const alreadyExists = prev.some(m => sameId(m._id, data._id));
+          if (alreadyExists) return prev.filter(m => m._id !== tempId);
+          return prev.map(m => m._id === tempId ? { ...data, isSending: false, isPending: false } : m);
+        });
+      } catch (err) {
+        console.error("sendVoiceNoteMessage error:", err);
+        toast.error("Failed to send voice message");
+        setDirectMessages(prev => prev.filter(m => m._id !== tempId));
+      }
+    } else if (selectedGroup) {
+      optimisticMsg.groupId = selectedGroup._id;
+      setDirectMessages(prev => [...prev, optimisticMsg]);
+      setGroups(prev => prev.map(g =>
+        sameId(g._id, selectedGroup._id)
+          ? {
+              ...g,
+              lastMessage: {
+                text: messageToSend || "🎤 Voice message",
+                senderName: user?.name || "You",
+                timestamp: new Date().toISOString(),
+              },
+            }
+          : g
+      ));
+
+      try {
+        const { data } = await api.post(`/api/chat/groups/${selectedGroup._id}/send`, {
+          message: messageToSend,
+          attachments: [voiceAttachment],
+        });
+        setDirectMessages(prev => {
+          const alreadyExists = prev.some(m => sameId(m._id, data._id));
+          if (alreadyExists) return prev.filter(m => m._id !== tempId);
+          return prev.map(m => m._id === tempId ? { ...data, isSending: false, isPending: false } : m);
+        });
+      } catch (err) {
+        console.error("sendGroupVoiceNote error:", err);
+        toast.error("Failed to send voice message");
+        setDirectMessages(prev => prev.filter(m => m._id !== tempId));
+      }
+    }
+  };
+
+  const stopAndSendRecording = () => {
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") return;
+
+    const recordedDuration = recordingDuration;
+    const recorder = mediaRecorderRef.current;
+    recorder.onstop = async () => {
+      try {
+        const chunks = audioChunksRef.current;
+        if (!chunks.length) return;
+        setIsUploadingVoice(true);
+
+        const mimeType = recorder.mimeType || "audio/webm";
+        const blob = new Blob(chunks, { type: mimeType });
+        const ext = mimeType.includes("mp4") ? ".m4a" : mimeType.includes("ogg") ? ".ogg" : ".weba";
+        const file = new File([blob], `voice_note_${Date.now()}${ext}`, { type: blob.type });
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const { data } = await api.post("/api/chat/upload", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+
+        await sendVoiceNoteMessage({ ...data, fileType: "audio", isVoiceNote: true, duration: recordedDuration });
+      } catch (err) {
+        console.error("Voice note upload error:", err);
+        toast.error(err.response?.data?.error || "Failed to upload voice message");
+      } finally {
+        setIsUploadingVoice(false);
+        audioChunksRef.current = [];
+      }
+    };
+
+    recorder.stop();
+    stopRecordingCleanup();
+  };
+
   // ── Send Message ─────────────────────────────────────────────────────────
   const handleSendMessage = useCallback(async () => {
     const hasText = !!directMsgText.trim();
@@ -1239,7 +1812,7 @@ const ConnectWithEmployee = () => {
         const filtered = prev.filter(u => !sameId(u._id, selectedChatUser._id));
         return [{
           ...selectedChatUser,
-          lastMessage: messageToSend || (attachmentsToSend.length ? "📎 Attachment" : ""),
+          lastMessage: messageToSend || getAttachmentLabel(attachmentsToSend),
           lastMessageTime: new Date().toISOString(),
         }, ...filtered];
       });
@@ -1287,7 +1860,7 @@ const ConnectWithEmployee = () => {
           ? {
               ...g,
               lastMessage: {
-                text: messageToSend || (attachmentsToSend.length ? "📎 Attachment" : ""),
+                text: messageToSend || getAttachmentLabel(attachmentsToSend),
                 senderName: user?.name || "You",
                 timestamp: new Date().toISOString(),
               },
@@ -1545,16 +2118,16 @@ const ConnectWithEmployee = () => {
       {/* ── SIDEBAR ─────────────────────────────────────────────────────── */}
       <div className={`${isSidebarOpen ? "w-full md:w-80 flex" : "hidden md:flex md:w-80"} flex-col border-r border-slate-200 bg-white h-full z-50 transition-all duration-300 overflow-hidden`}>
         {/* Header with Title and Mode Switcher */}
-        <div className="p-4 bg-gradient-to-r from-blue-600 to-indigo-700 text-white flex-shrink-0 shadow-sm">
+        <div className="p-4 bg-white border-b border-slate-100 text-slate-900 flex-shrink-0">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center shadow-lg backdrop-blur-sm">
-                <FaComments className="text-white" size={18} />
+              <div className="w-10 h-10 bg-sky-50 border border-sky-100 rounded-xl flex items-center justify-center">
+                <FaComments className="text-sky-600" size={18} />
               </div>
               <div>
-                <h2 className="font-black text-lg tracking-tight">ChatHub</h2>
-                <p className="text-[10px] font-bold text-blue-200 uppercase tracking-widest flex items-center gap-1.5">
-                  <span className={`inline-block w-2 h-2 rounded-full ${socketConnected ? "bg-emerald-400 animate-pulse shadow-sm shadow-emerald-300" : "bg-slate-400"}`} />
+                <h2 className="font-black text-lg tracking-tight text-slate-900">ChatHub</h2>
+                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest flex items-center gap-1.5">
+                  <span className={`inline-block w-2 h-2 rounded-full ${socketConnected ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
                   {socketConnected ? "Connected" : "Syncing"}
                 </p>
               </div>
@@ -1564,7 +2137,7 @@ const ConnectWithEmployee = () => {
             {chatMode === "groups" && (
               <button
                 onClick={() => setIsGroupModalOpen(true)}
-                className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-xl transition-all flex items-center gap-1.5 text-xs font-bold shadow-sm"
+                className="bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 p-2 rounded-xl transition-all flex items-center gap-1.5 text-xs font-bold cursor-pointer"
                 title="Create New Group"
               >
                 <FaPlus size={12} />
@@ -1574,11 +2147,11 @@ const ConnectWithEmployee = () => {
           </div>
 
           {/* Primary Mode Toggle: Direct Messages vs Teams/Groups */}
-          <div className="grid grid-cols-2 gap-1 bg-black/20 p-1 rounded-xl text-center mb-3">
+          <div className="grid grid-cols-2 gap-1 bg-slate-100 p-1 rounded-xl text-center mb-3">
             <button
               onClick={() => setChatMode("direct")}
-              className={`py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                chatMode === "direct" ? "bg-white text-blue-700 shadow-md" : "text-blue-100 hover:text-white"
+              className={`py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                chatMode === "direct" ? "bg-white text-sky-600 shadow-xs" : "text-slate-500 hover:text-slate-800"
               }`}
             >
               <FaComments size={13} />
@@ -1591,8 +2164,8 @@ const ConnectWithEmployee = () => {
             </button>
             <button
               onClick={() => setChatMode("groups")}
-              className={`py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                chatMode === "groups" ? "bg-white text-blue-700 shadow-md" : "text-blue-100 hover:text-white"
+              className={`py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                chatMode === "groups" ? "bg-white text-sky-600 shadow-xs" : "text-slate-500 hover:text-slate-800"
               }`}
             >
               <FaUserFriends size={13} />
@@ -1607,15 +2180,15 @@ const ConnectWithEmployee = () => {
 
           {/* Search bar */}
           <div className="relative group mb-2">
-            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-200 group-focus-within:text-white transition-colors" size={13} />
+            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-sky-600 transition-colors" size={13} />
             <input
-              className="w-full pl-9 pr-4 py-2 bg-white/10 border border-white/20 rounded-xl text-xs outline-none placeholder:text-blue-100 text-white focus:bg-white/15 focus:border-white/30 transition-all"
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none placeholder:text-slate-400 text-slate-800 focus:bg-white focus:border-sky-300 transition-all"
               placeholder={chatMode === "direct" ? "Search colleagues..." : "Search teams & groups..."}
               value={directSearchTerm}
               onChange={e => setDirectSearchTerm(e.target.value)}
             />
             {directSearchTerm && (
-              <button onClick={() => setDirectSearchTerm("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-200 hover:text-white">
+              <button onClick={() => setDirectSearchTerm("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer">
                 <FaTimes size={11} />
               </button>
             )}
@@ -1623,30 +2196,30 @@ const ConnectWithEmployee = () => {
 
           {/* Secondary Sub-tabs for Direct Mode */}
           {chatMode === "direct" && (
-            <div className="grid grid-cols-3 gap-1 bg-white/15 p-1 rounded-xl text-center">
+            <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl text-center">
               <button
                 onClick={() => setActiveTab("all")}
-                className={`py-1 text-[11px] font-bold rounded-lg transition-all ${
-                  activeTab === "all" ? "bg-white text-blue-700 shadow-sm" : "text-blue-100 hover:text-white"
+                className={`py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
+                  activeTab === "all" ? "bg-sky-100 text-sky-700 shadow-2xs" : "text-slate-500 hover:text-slate-800"
                 }`}
               >
                 All
               </button>
               <button
                 onClick={() => setActiveTab("management")}
-                className={`py-1 text-[11px] font-bold rounded-lg transition-all ${
-                  activeTab === "management" ? "bg-white text-blue-700 shadow-sm" : "text-blue-100 hover:text-white"
+                className={`py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
+                  activeTab === "management" ? "bg-sky-100 text-sky-700 shadow-2xs" : "text-slate-500 hover:text-slate-800"
                 }`}
               >
                 Manager/Admin
               </button>
               <button
                 onClick={() => setActiveTab("colleagues")}
-                className={`py-1 text-[11px] font-bold rounded-lg transition-all ${
-                  activeTab === "colleagues" ? "bg-white text-blue-700 shadow-sm" : "text-blue-100 hover:text-white"
+                className={`py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
+                  activeTab === "colleagues" ? "bg-sky-100 text-sky-700 shadow-2xs" : "text-slate-500 hover:text-slate-800"
                 }`}
               >
-                Staff
+                Employees
               </button>
             </div>
           )}
@@ -1683,7 +2256,7 @@ const ConnectWithEmployee = () => {
                       onClick={() => handleUserSwitch(emp)}
                       className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl cursor-pointer mb-1.5 transition-all duration-200 ${
                         isActive
-                          ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-200"
+                          ? "bg-sky-50 border border-sky-200/80 text-slate-900 shadow-2xs"
                           : "hover:bg-slate-50 border border-transparent hover:border-slate-100"
                       } ${isSwitchingUser ? "pointer-events-none opacity-70" : ""}`}
                     >
@@ -1692,8 +2265,8 @@ const ConnectWithEmployee = () => {
                         <div
                           className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black text-sm ${
                             isActive
-                              ? "bg-white/20 border-2 border-white/30 text-white"
-                              : "bg-gradient-to-tr from-blue-500 to-indigo-600 text-white shadow-sm"
+                              ? "bg-sky-200/70 border border-sky-300 text-sky-800"
+                              : "bg-sky-100 text-sky-700 border border-sky-200/60"
                           }`}
                         >
                           {emp.name?.charAt(0)?.toUpperCase()}
@@ -1716,31 +2289,26 @@ const ConnectWithEmployee = () => {
                       <div className="flex-1 overflow-hidden min-w-0">
                         <div className="flex justify-between items-center mb-0.5">
                           <div className="flex items-center gap-1.5 truncate">
-                            <p className={`text-sm font-bold truncate ${isActive ? "text-white" : "text-slate-800"}`}>
+                            <p className={`text-sm font-bold truncate ${isActive ? "text-sky-950" : "text-slate-800"}`}>
                               {emp.name}
                             </p>
                             {emp.role === "admin" && (
-                              <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase ${isActive ? "bg-white/20 text-white" : "bg-purple-100 text-purple-700"}`}>
+                              <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase bg-purple-100 text-purple-700">
                                 Admin
                               </span>
                             )}
                             {emp.role === "manager" && (
-                              <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase ${isActive ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-700"}`}>
+                              <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase bg-emerald-100 text-emerald-700">
                                 Manager
                               </span>
                             )}
-                            {emp.role === "employee" && (
-                              <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase ${isActive ? "bg-white/20 text-white" : "bg-blue-100 text-blue-700"}`}>
-                                Staff
-                              </span>
-                            )}
                           </div>
-                          <span className={`text-[10px] font-medium flex-shrink-0 ml-1 ${isActive ? "text-blue-100" : "text-slate-400"}`}>
-                            {emp.lastMessageTime ? new Date(emp.lastMessageTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                          <span className={`text-[10px] font-medium flex-shrink-0 ml-1 ${isActive ? "text-sky-700" : "text-slate-400"}`}>
+                            {emp.lastMessageTime ? formatTimeWithAmPm(emp.lastMessageTime) : ""}
                           </span>
                         </div>
-                        <p className={`text-xs truncate font-medium ${isActive ? "text-blue-100 opacity-90" : "text-slate-500"}`}>
-                          {emp.lastMessage || emp.positionName || emp.department || emp.employeeId || "Start connecting"}
+                        <p className={`text-xs truncate font-medium ${isActive ? "text-sky-800/80" : "text-slate-500"}`}>
+                          {emp.lastMessage || getEmployeeRole(emp) || emp.department || emp.employeeId || "Start connecting"}
                         </p>
                       </div>
 
@@ -1780,7 +2348,7 @@ const ConnectWithEmployee = () => {
                         onClick={() => handleGroupSwitch(grp)}
                         className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl cursor-pointer mb-1.5 transition-all duration-200 ${
                           isActive
-                            ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-200"
+                            ? "bg-sky-50 border border-sky-200/80 text-slate-900 shadow-2xs"
                             : "hover:bg-slate-50 border border-transparent hover:border-slate-100"
                         } ${isSwitchingUser ? "pointer-events-none opacity-70" : ""}`}
                       >
@@ -1788,8 +2356,8 @@ const ConnectWithEmployee = () => {
                         <div
                           className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black text-sm flex-shrink-0 ${
                             isActive
-                              ? "bg-white/20 border-2 border-white/30 text-white"
-                              : "bg-gradient-to-tr from-indigo-500 to-purple-600 text-white shadow-sm"
+                              ? "bg-sky-200/70 border border-sky-300 text-sky-800"
+                              : "bg-sky-100 text-sky-700 border border-sky-200/60"
                           }`}
                         >
                           {grp.name?.charAt(0)?.toUpperCase()}
@@ -1799,18 +2367,18 @@ const ConnectWithEmployee = () => {
                         <div className="flex-1 overflow-hidden min-w-0">
                           <div className="flex justify-between items-center mb-0.5">
                             <div className="flex items-center gap-1.5 truncate">
-                              <p className={`text-sm font-bold truncate ${isActive ? "text-white" : "text-slate-800"}`}>
+                              <p className={`text-sm font-bold truncate ${isActive ? "text-sky-950" : "text-slate-800"}`}>
                                 {grp.name}
                               </p>
-                              <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase ${isActive ? "bg-white/20 text-white" : "bg-indigo-100 text-indigo-700"}`}>
+                              <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase bg-sky-100 text-sky-700">
                                 Group
                               </span>
                             </div>
-                            <span className={`text-[10px] font-medium flex-shrink-0 ml-1 ${isActive ? "text-indigo-100" : "text-slate-400"}`}>
-                              {grp.lastMessage?.timestamp ? new Date(grp.lastMessage.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                            <span className={`text-[10px] font-medium flex-shrink-0 ml-1 ${isActive ? "text-sky-700" : "text-slate-400"}`}>
+                              {grp.lastMessage?.timestamp ? formatTimeWithAmPm(grp.lastMessage.timestamp) : ""}
                             </span>
                           </div>
-                          <p className={`text-xs truncate font-medium ${isActive ? "text-indigo-100 opacity-90" : "text-slate-500"}`}>
+                          <p className={`text-xs truncate font-medium ${isActive ? "text-sky-800/80" : "text-slate-500"}`}>
                             {(() => {
                               if (!grp.lastMessage?.text) return `${grp.members?.length || 0} members`;
                               const isSystemMsg = grp.lastMessage.senderName === "System" || grp.lastMessage.isSystem || grp.lastMessage.systemAction;
@@ -1857,7 +2425,7 @@ const ConnectWithEmployee = () => {
                 {selectedChatUser ? (
                   // 1-on-1 Header Avatar
                   <div className="relative flex-shrink-0">
-                    <div className="w-10 h-10 md:w-11 md:h-11 bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center rounded-2xl font-black text-base shadow-sm">
+                    <div className="w-10 h-10 md:w-11 md:h-11 bg-sky-100 text-sky-700 border border-sky-200/60 flex items-center justify-center rounded-2xl font-black text-base">
                       {selectedChatUser.name?.charAt(0)?.toUpperCase()}
                     </div>
                     {onlineUserIds.has(selectedChatUser._id?.toString()) && (
@@ -1883,9 +2451,6 @@ const ConnectWithEmployee = () => {
                         )}
                         {selectedChatUser.role === "manager" && (
                           <span className="text-[9px] font-black px-2 py-0.5 rounded-full uppercase bg-emerald-100 text-emerald-700">Manager</span>
-                        )}
-                        {selectedChatUser.role === "employee" && (
-                          <span className="text-[9px] font-black px-2 py-0.5 rounded-full uppercase bg-blue-100 text-blue-700">Staff</span>
                         )}
                       </>
                     )}
@@ -2079,7 +2644,7 @@ const ConnectWithEmployee = () => {
                                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 flex-shrink-0" />
                                 <span>{displayText}</span>
                                 <span className="text-[10px] text-slate-400 font-normal ml-0.5">
-                                  {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                  {formatTimeWithAmPm(msg.createdAt)}
                                 </span>
                               </div>
                             </div>
@@ -2115,19 +2680,64 @@ const ConnectWithEmployee = () => {
                                   {/* WhatsApp-Style Hover Reaction Picker Bar */}
                                   {!isPending && !isDeleted && (
                                     <div
+                                      ref={reactionPickerMsgId === msg._id ? reactionPickerRef : null}
                                       className={`absolute -top-9 ${
                                         isMe ? "right-2" : "left-2"
-                                      } hidden group-hover/bubble:flex items-center gap-1 bg-white border border-slate-200/90 shadow-lg rounded-full px-2 py-1 z-30 transition-all animate-slide-up`}
+                                      } ${
+                                        reactionPickerMsgId === msg._id
+                                          ? "flex z-40"
+                                          : "hidden group-hover/bubble:flex z-30"
+                                      } items-center gap-1 bg-white border border-slate-200/90 shadow-lg rounded-full px-2 py-1 transition-all animate-slide-up`}
                                     >
                                       {QUICK_REACTIONS.map(emoji => (
                                         <button
                                           key={emoji}
-                                          onClick={() => handleToggleReaction(msg._id, emoji)}
-                                          className="text-base hover:scale-130 transition-transform px-1 py-0.5 rounded-full hover:bg-slate-100"
+                                          type="button"
+                                          onClick={() => {
+                                            handleToggleReaction(msg._id, emoji);
+                                            setReactionPickerMsgId(null);
+                                          }}
+                                          className="text-base hover:scale-130 transition-transform px-1 py-0.5 rounded-full hover:bg-slate-100 cursor-pointer"
                                         >
                                           {emoji}
                                         </button>
                                       ))}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setReactionPickerMsgId(prev => (prev === msg._id ? null : msg._id));
+                                        }}
+                                        className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors cursor-pointer ${
+                                          reactionPickerMsgId === msg._id
+                                            ? "bg-blue-100 text-blue-600"
+                                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                        }`}
+                                        title="More reactions"
+                                      >
+                                        <FaPlus size={11} />
+                                      </button>
+
+                                      {reactionPickerMsgId === msg._id && (
+                                        <div
+                                          className={`absolute ${
+                                            index < 2 ? "top-10" : "bottom-10"
+                                          } ${isMe ? "right-0" : "left-0"} z-50 shadow-2xl rounded-2xl overflow-hidden border border-slate-200 bg-white`}
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          <EmojiPicker
+                                            onEmojiClick={(emojiData) => {
+                                              handleToggleReaction(msg._id, emojiData.emoji);
+                                              setReactionPickerMsgId(null);
+                                            }}
+                                            width={typeof window !== "undefined" && window.innerWidth < 768 ? 270 : 320}
+                                            height={360}
+                                            searchDisabled={false}
+                                            skinTonesDisabled={true}
+                                            previewConfig={{ showPreview: false }}
+                                          />
+                                        </div>
+                                      )}
                                     </div>
                                   )}
 
@@ -2152,7 +2762,7 @@ const ConnectWithEmployee = () => {
                                       </p>
                                       <div className="flex items-center justify-end gap-1 mt-1 text-slate-400 not-italic">
                                         <span className="text-[10px] font-medium tracking-tight">
-                                          {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                          {formatTimeWithAmPm(msg.createdAt)}
                                         </span>
                                       </div>
                                     </div>
@@ -2160,7 +2770,7 @@ const ConnectWithEmployee = () => {
                                     <div
                                       className={`px-4 py-2.5 rounded-2xl shadow-xs transition-all relative ${
                                         isMe
-                                          ? "bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-tr-none shadow-blue-100"
+                                          ? "bg-[#E0F2FE] text-[#0C4A6E] border border-sky-200/80 rounded-tr-none"
                                           : "bg-white text-slate-800 border border-slate-200/80 rounded-tl-none"
                                       } ${isPending ? "opacity-75" : ""}`}
                                     >
@@ -2176,7 +2786,7 @@ const ConnectWithEmployee = () => {
                                         <div className="space-y-2 mt-2">
                                           {msg.attachments.map((att, i) => (
                                             <div key={i} className="rounded-xl overflow-hidden">
-                                              {att.fileType === "image" ? (
+                                              {isImageAttachment(att) ? (
                                                 <a href={att.url} target="_blank" rel="noopener noreferrer">
                                                   <img
                                                     src={att.url}
@@ -2184,31 +2794,93 @@ const ConnectWithEmployee = () => {
                                                     className="max-h-60 rounded-xl object-cover hover:opacity-95 transition-opacity border border-black/10"
                                                   />
                                                 </a>
+                                              ) : isVideoAttachment(att) ? (
+                                                <div className="rounded-xl overflow-hidden bg-black/90 border border-black/10 max-w-sm sm:max-w-md shadow-sm">
+                                                  <video
+                                                    src={att.url}
+                                                    controls
+                                                    preload="metadata"
+                                                    playsInline
+                                                    className="w-full max-h-72 rounded-t-xl bg-black"
+                                                  >
+                                                    Your browser does not support the video tag.
+                                                  </video>
+                                                  <div className="flex items-center justify-between px-3 py-1.5 text-[11px] text-white/90 bg-black/60">
+                                                    <div className="flex items-center gap-1.5 truncate mr-2">
+                                                      <FaVideo size={11} className="text-purple-400 flex-shrink-0" />
+                                                      <span className="truncate font-medium">{att.fileName || "Video"}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                                      {att.fileSize > 0 && <span className="opacity-75">{formatFileSize(att.fileSize)}</span>}
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => handleDownloadAttachment(att, `${msg._id}-${i}`)}
+                                                        disabled={downloadingAttachmentKey === `${msg._id}-${i}`}
+                                                        className="text-white/80 hover:text-white p-1 transition-colors"
+                                                        title="Download video"
+                                                      >
+                                                        {downloadingAttachmentKey === `${msg._id}-${i}` ? (
+                                                          <FaSpinner size={11} className="animate-spin" />
+                                                        ) : (
+                                                          <FaDownload size={11} />
+                                                        )}
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              ) : isAudioAttachment(att) ? (
+                                                <VoiceNotePlayer
+                                                  att={att}
+                                                  isMe={isMe}
+                                                  onDownload={() => handleDownloadAttachment(att, `${msg._id}-${i}`)}
+                                                  isDownloading={downloadingAttachmentKey === `${msg._id}-${i}`}
+                                                />
                                               ) : (
                                                 <button
                                                   type="button"
                                                   onClick={() => handleDownloadAttachment(att, `${msg._id}-${i}`)}
                                                   disabled={downloadingAttachmentKey === `${msg._id}-${i}`}
-                                                  className={`w-full text-left flex items-center gap-3 p-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-70 ${
+                                                  className={`w-full text-left flex items-center gap-3 p-2.5 rounded-xl transition-all cursor-pointer disabled:opacity-70 group ${
                                                     isMe
-                                                      ? "bg-white/15 hover:bg-white/25 text-white"
+                                                      ? "bg-white/75 hover:bg-white text-[#0C4A6E] border border-sky-200/70"
                                                       : "bg-slate-100 hover:bg-slate-200 text-slate-800"
                                                   }`}
                                                 >
-                                                  <div className="p-2 rounded-lg bg-blue-500 text-white">
-                                                    <FaFileAlt size={16} />
-                                                  </div>
+                                                  {(() => {
+                                                    const cfg = getFileIconConfig(att);
+                                                    return (
+                                                      <div className={`p-2.5 rounded-xl ${cfg.bg} text-white flex-shrink-0 shadow-xs flex items-center justify-center`}>
+                                                        {cfg.icon}
+                                                      </div>
+                                                    );
+                                                  })()}
                                                   <div className="flex-1 min-w-0">
-                                                    <p className="text-xs font-bold truncate">{att.fileName || "Download Document"}</p>
+                                                    <div className="flex items-center gap-1.5">
+                                                      <p className="text-xs font-bold truncate">{att.fileName || "Download Document"}</p>
+                                                      {(() => {
+                                                        const cfg = getFileIconConfig(att);
+                                                        return (
+                                                          <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase flex-shrink-0 ${cfg.tagBg}`}>
+                                                            {cfg.tag}
+                                                          </span>
+                                                        );
+                                                      })()}
+                                                    </div>
                                                     {att.fileSize > 0 && (
-                                                      <p className="text-[10px] opacity-75">{formatFileSize(att.fileSize)}</p>
+                                                      <p className={`text-[10px] mt-0.5 ${isMe ? "text-sky-700/80" : "text-slate-500"}`}>
+                                                        {formatFileSize(att.fileSize)}
+                                                      </p>
                                                     )}
                                                   </div>
-                                                  {downloadingAttachmentKey === `${msg._id}-${i}` ? (
-                                                    <FaSpinner size={13} className="animate-spin opacity-75" />
-                                                  ) : (
-                                                    <FaDownload size={13} className="opacity-75" />
-                                                  )}
+                                                  <div className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${
+                                                    isMe ? "hover:bg-sky-200/60 text-sky-700" : "hover:bg-slate-300 text-slate-600"
+                                                  }`}>
+                                                    {downloadingAttachmentKey === `${msg._id}-${i}` ? (
+                                                      <FaSpinner size={13} className="animate-spin" />
+                                                    ) : (
+                                                      <FaDownload size={13} />
+                                                    )}
+                                                  </div>
                                                 </button>
                                               )}
                                             </div>
@@ -2219,7 +2891,7 @@ const ConnectWithEmployee = () => {
                                       {/* Timestamp & Double Ticks */}
                                       <div
                                         className={`flex items-center justify-end gap-1.5 mt-1.5 ${
-                                          isMe ? "text-blue-100" : "text-slate-400"
+                                          isMe ? "text-sky-700/75" : "text-slate-400"
                                         }`}
                                       >
                                         {msg.isEdited && (
@@ -2228,16 +2900,16 @@ const ConnectWithEmployee = () => {
                                           </span>
                                         )}
                                         <span className="text-[10px] font-medium tracking-tight">
-                                          {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                          {formatTimeWithAmPm(msg.createdAt)}
                                         </span>
                                         {isMe && (
                                           isPending ? (
-                                            <div className="w-2.5 h-2.5 border border-blue-200 border-t-white rounded-full animate-spin" />
+                                            <div className="w-2.5 h-2.5 border border-sky-300 border-t-sky-600 rounded-full animate-spin" />
                                           ) : (
                                             // WhatsApp Cyan Double Ticks when Read
                                             <FaCheckDouble
                                               className={`text-[11px] ${
-                                                msg.isRead ? "text-cyan-300" : "opacity-40"
+                                                msg.isRead ? "text-sky-600" : "opacity-45"
                                               }`}
                                               title={msg.isRead ? "Read" : "Delivered"}
                                             />
@@ -2358,11 +3030,27 @@ const ConnectWithEmployee = () => {
                       key={i}
                       className="flex items-center gap-2 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-xl text-xs text-slate-700 shadow-xs"
                     >
-                      <FaPaperclip size={11} className="text-blue-600" />
+                      {isVideoAttachment(att) ? (
+                        <FaVideo size={11} className="text-purple-600 flex-shrink-0" />
+                      ) : isAudioAttachment(att) ? (
+                        <FaMusic size={11} className="text-emerald-600 flex-shrink-0" />
+                      ) : isImageAttachment(att) ? (
+                        <FaImage size={11} className="text-blue-600 flex-shrink-0" />
+                      ) : isArchiveAttachment(att) ? (
+                        <FaFileArchive size={11} className="text-amber-600 flex-shrink-0" />
+                      ) : isPresentationAttachment(att) ? (
+                        <FaFilePowerpoint size={11} className="text-orange-600 flex-shrink-0" />
+                      ) : isCodeOrDataAttachment(att) ? (
+                        <FaFileCode size={11} className="text-indigo-600 flex-shrink-0" />
+                      ) : (
+                        <FaPaperclip size={11} className="text-slate-500 flex-shrink-0" />
+                      )}
                       <span className="max-w-[150px] truncate font-medium">{att.fileName}</span>
                       <button
+                        type="button"
                         onClick={() => removeAttachment(i)}
-                        className="text-slate-400 hover:text-red-500 ml-1"
+                        className="text-slate-400 hover:text-red-500 ml-1 transition-colors"
+                        title="Remove attachment"
                       >
                         <FaTimes size={10} />
                       </button>
@@ -2373,104 +3061,161 @@ const ConnectWithEmployee = () => {
 
               {/* Main Input Row */}
               <div className="max-w-4xl mx-auto flex items-end gap-2 bg-slate-100 rounded-2xl px-2 py-1.5 border border-slate-200 focus-within:bg-white focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
-                {/* Paperclip Button for File / Image Attachments */}
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  accept="image/*,.pdf,.doc,.docx,.txt"
-                />
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploadingFile}
-                  className="p-2.5 rounded-xl text-slate-500 hover:text-blue-600 hover:bg-white transition-all disabled:opacity-50"
-                  title="Attach file or image"
-                >
-                  {isUploadingFile ? (
-                    <FaSpinner className="animate-spin text-blue-600" size={17} />
-                  ) : (
-                    <FaPaperclip size={17} />
-                  )}
-                </button>
-
-                {/* Emoji Picker Button */}
-                <div className="relative">
-                  {showEmojiPicker && (
-                    <div className="absolute bottom-14 left-0 z-50 shadow-2xl rounded-2xl overflow-hidden border border-slate-200 animate-fade-in">
-                      <EmojiPicker
-                        onEmojiClick={handleEmojiClick}
-                        width={window.innerWidth < 768 ? 280 : 330}
-                        height={380}
-                        searchDisabled={false}
-                        skinTonesDisabled
-                        previewConfig={{ showPreview: false }}
-                      />
+                {isRecording ? (
+                  <div className="flex-1 flex items-center justify-between gap-3 px-3 py-2 bg-red-50 rounded-xl border border-red-200 animate-pulse">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping inline-block" />
+                      <span className="text-xs font-bold text-red-600 uppercase tracking-wide">
+                        Recording {Math.floor(recordingDuration / 60)}:{String(recordingDuration % 60).padStart(2, "0")}
+                      </span>
+                      <span className="text-[11px] text-slate-500 hidden sm:inline">
+                        (Speak into microphone...)
+                      </span>
                     </div>
-                  )}
-                  <button
-                    onClick={() => setShowEmojiPicker(v => !v)}
-                    className={`p-2.5 rounded-xl transition-all ${
-                      showEmojiPicker
-                        ? "bg-blue-600 text-white shadow-sm"
-                        : "text-slate-500 hover:text-blue-600 hover:bg-white"
-                    }`}
-                    title="Insert emoji"
-                  >
-                    <FaSmile size={18} />
-                  </button>
-                </div>
 
-                {/* Textarea Input */}
-                <textarea
-                  className="flex-1 bg-transparent outline-none resize-none text-sm py-2 px-2 text-slate-800 placeholder:text-slate-400 min-h-[40px] max-h-32"
-                  rows={1}
-                  placeholder={
-                    selectedChatUser
-                      ? `Message ${selectedChatUser.name.split(' ')[0]}...`
-                      : `Message ${selectedGroup?.name}...`
-                  }
-                  value={directMsgText}
-                  onChange={e => handleTyping(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  disabled={sendingMessage || isSwitchingUser || isChatLoading}
-                />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={cancelRecording}
+                        className="p-1.5 px-2.5 rounded-lg text-slate-600 hover:text-red-600 hover:bg-red-100 transition-all text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                        title="Cancel voice recording"
+                      >
+                        <FaTrash size={12} />
+                        <span className="hidden sm:inline">Cancel</span>
+                      </button>
 
-                {/* Send Button */}
-                <button
-                  onClick={handleSendMessage}
-                  disabled={
-                    (!directMsgText.trim() && attachedFiles.length === 0) ||
-                    sendingMessage ||
-                    isSwitchingUser ||
-                    isChatLoading
-                  }
-                  className={`p-3 rounded-xl transition-all flex items-center justify-center flex-shrink-0 ${
-                    (directMsgText.trim() || attachedFiles.length > 0) &&
-                    !sendingMessage &&
-                    !isSwitchingUser &&
-                    !isChatLoading
-                      ? "bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-md shadow-blue-200 hover:shadow-lg active:scale-95"
-                      : "bg-slate-200 text-slate-400 cursor-not-allowed"
-                  }`}
-                  title="Send message"
-                >
-                  {sendingMessage ? (
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : editingMessageId ? (
-                    <FaCheck size={15} />
-                  ) : (
-                    <FaPaperPlane size={15} />
-                  )}
-                </button>
+                      <button
+                        type="button"
+                        onClick={stopAndSendRecording}
+                        disabled={isUploadingVoice}
+                        className="p-1.5 px-3 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50 cursor-pointer"
+                        title="Send voice message"
+                      >
+                        {isUploadingVoice ? (
+                          <FaSpinner className="animate-spin" size={12} />
+                        ) : (
+                          <FaPaperPlane size={12} />
+                        )}
+                        <span>Send</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Paperclip Button for File / Image / Video / Audio Attachments */}
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.ppt,.pptx,.rtf,.odt,.odp,.ods,.xls,.xlsx,.txt,.csv,.json,.xml,.log,.md,.sql,.zip,.rar,.7z,.tar,.gz"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploadingFile}
+                      className="p-2.5 rounded-xl text-slate-500 hover:text-blue-600 hover:bg-white transition-all disabled:opacity-50 cursor-pointer"
+                      title="Attach photo, video, audio, document, presentation, archive, or code/data file"
+                    >
+                      {isUploadingFile ? (
+                        <FaSpinner className="animate-spin text-blue-600" size={17} />
+                      ) : (
+                        <FaPaperclip size={17} />
+                      )}
+                    </button>
+
+                    {/* Emoji Picker Button */}
+                    <div className="relative">
+                      {showEmojiPicker && (
+                        <div className="absolute bottom-14 left-0 z-50 shadow-2xl rounded-2xl overflow-hidden border border-slate-200 animate-fade-in">
+                          <EmojiPicker
+                            onEmojiClick={handleEmojiClick}
+                            width={window.innerWidth < 768 ? 280 : 330}
+                            height={380}
+                            searchDisabled={false}
+                            skinTonesDisabled
+                            previewConfig={{ showPreview: false }}
+                          />
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowEmojiPicker(v => !v)}
+                        className={`p-2.5 rounded-xl transition-all cursor-pointer ${
+                          showEmojiPicker
+                            ? "bg-blue-600 text-white shadow-sm"
+                            : "text-slate-500 hover:text-blue-600 hover:bg-white"
+                        }`}
+                        title="Insert emoji"
+                      >
+                        <FaSmile size={18} />
+                      </button>
+                    </div>
+
+                    {/* Push-to-Talk / Voice Note Button */}
+                    <button
+                      type="button"
+                      onClick={startRecording}
+                      disabled={sendingMessage || isSwitchingUser || isChatLoading || isUploadingVoice}
+                      className="p-2.5 rounded-xl text-slate-500 hover:text-red-500 hover:bg-red-50 transition-all disabled:opacity-50 cursor-pointer flex-shrink-0"
+                      title="Record voice message (Push-to-talk)"
+                    >
+                      <FaMicrophone size={17} />
+                    </button>
+
+                    {/* Textarea Input */}
+                    <textarea
+                      className="flex-1 bg-transparent outline-none resize-none text-sm py-2 px-2 text-slate-800 placeholder:text-slate-400 min-h-[40px] max-h-32"
+                      rows={1}
+                      placeholder={
+                        selectedChatUser
+                          ? `Message ${selectedChatUser.name.split(' ')[0]}...`
+                          : `Message ${selectedGroup?.name}...`
+                      }
+                      value={directMsgText}
+                      onChange={e => handleTyping(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      disabled={sendingMessage || isSwitchingUser || isChatLoading}
+                    />
+
+                    {/* Send Button */}
+                    <button
+                      type="button"
+                      onClick={handleSendMessage}
+                      disabled={
+                        (!directMsgText.trim() && attachedFiles.length === 0) ||
+                        sendingMessage ||
+                        isSwitchingUser ||
+                        isChatLoading
+                      }
+                      className={`p-3 rounded-xl transition-all flex items-center justify-center flex-shrink-0 ${
+                        (directMsgText.trim() || attachedFiles.length > 0) &&
+                        !sendingMessage &&
+                        !isSwitchingUser &&
+                        !isChatLoading
+                          ? "bg-sky-600 hover:bg-sky-700 text-white shadow-sm active:scale-95 cursor-pointer"
+                          : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                      }`}
+                      title="Send message"
+                    >
+                      {sendingMessage ? (
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : editingMessageId ? (
+                        <FaCheck size={15} />
+                      ) : (
+                        <FaPaperPlane size={15} />
+                      )}
+                    </button>
+                  </>
+                )}
               </div>
             </footer>
           </>
         ) : (
           // Empty State
-          <div className={`${!isSidebarOpen ? "flex" : "hidden md:flex"} flex-1 flex-col items-center justify-center bg-white h-full p-6`}>
+          <div className={`${!isSidebarOpen ? "flex" : "hidden md:flex"} flex-1 flex-col items-center justify-center bg-slate-50/40 h-full p-6`}>
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex flex-col items-center max-w-sm text-center">
-              <div className="w-20 h-20 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-3xl shadow-xl shadow-blue-100 flex items-center justify-center mb-6 text-white">
+              <div className="w-20 h-20 bg-sky-100 border border-sky-200/80 rounded-3xl shadow-sm flex items-center justify-center mb-6 text-sky-600">
                 <FaUsers size={36} />
               </div>
               <h3 className="text-xl font-black text-slate-800 mb-2">Team Conversations</h3>
@@ -2608,7 +3353,7 @@ const ConnectWithEmployee = () => {
                               </div>
                               <div className="truncate">
                                 <p className="text-xs font-bold text-slate-800 truncate">{c.name}</p>
-                                <p className="text-[10px] text-slate-400 truncate">{c.positionName || c.department || c.employeeId}</p>
+                                <p className="text-[10px] text-slate-400 truncate">{getEmployeeRole(c) || c.department || c.employeeId}</p>
                               </div>
                             </div>
                             <input
@@ -2727,7 +3472,7 @@ const ConnectWithEmployee = () => {
                               </div>
                               <div className="truncate">
                                 <p className="text-xs font-bold text-slate-800 truncate">{c.name}</p>
-                                <p className="text-[10px] text-slate-400 truncate">{c.positionName || c.department || c.employeeId}</p>
+                                <p className="text-[10px] text-slate-400 truncate">{getEmployeeRole(c) || c.department || c.employeeId}</p>
                               </div>
                             </div>
                             <input
@@ -2912,7 +3657,7 @@ const ConnectWithEmployee = () => {
                 </div>
                 <h3 className="font-black text-lg">{selectedChatUser.name}</h3>
                 <p className="text-xs text-blue-100 font-medium mt-0.5">
-                  {selectedChatUser.positionName || selectedChatUser.department || selectedChatUser.role}
+                  {getEmployeeRole(selectedChatUser)}
                 </p>
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/20 text-[11px] font-semibold mt-2">
                   <span className={`w-2 h-2 rounded-full ${onlineUserIds.has(selectedChatUser._id?.toString()) ? "bg-emerald-400" : "bg-slate-300"}`} />
@@ -2922,21 +3667,27 @@ const ConnectWithEmployee = () => {
 
               <div className="p-5 space-y-3">
                 {selectedChatUser.employeeId && (
-                  <div className="flex justify-between items-center text-xs py-1.5 border-b border-slate-100">
-                    <span className="font-semibold text-slate-500">Employee ID</span>
-                    <span className="font-bold text-slate-800">{selectedChatUser.employeeId}</span>
+                  <div className="flex justify-between items-center text-xs py-1.5 border-b border-slate-100 gap-3">
+                    <span className="font-semibold text-slate-500 flex-shrink-0">Employee ID</span>
+                    <span className="font-bold text-slate-800 text-right">{selectedChatUser.employeeId}</span>
                   </div>
                 )}
-                {selectedChatUser.department && (
-                  <div className="flex justify-between items-center text-xs py-1.5 border-b border-slate-100">
-                    <span className="font-semibold text-slate-500">Department</span>
-                    <span className="font-bold text-slate-800">{selectedChatUser.department}</span>
+                {getEmployeeDept(selectedChatUser) && (
+                  <div className="flex justify-between items-center text-xs py-1.5 border-b border-slate-100 gap-3">
+                    <span className="font-semibold text-slate-500 flex-shrink-0">Department</span>
+                    <span className="font-bold text-slate-800 text-right">{getEmployeeDept(selectedChatUser)}</span>
                   </div>
                 )}
                 {selectedChatUser.email && (
-                  <div className="flex justify-between items-center text-xs py-1.5 border-b border-slate-100">
-                    <span className="font-semibold text-slate-500">Email</span>
-                    <span className="font-bold text-slate-800 truncate max-w-[200px]">{selectedChatUser.email}</span>
+                  <div className="flex justify-between items-start text-xs py-1.5 border-b border-slate-100 gap-3">
+                    <span className="font-semibold text-slate-500 flex-shrink-0">Email</span>
+                    <a
+                      href={`mailto:${selectedChatUser.email}`}
+                      className="font-bold text-slate-800 hover:text-blue-600 transition-colors text-right break-all select-all leading-relaxed"
+                      title={selectedChatUser.email}
+                    >
+                      {selectedChatUser.email}
+                    </a>
                   </div>
                 )}
               </div>

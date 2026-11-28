@@ -3,6 +3,7 @@ import {
   normalizeJoiningDateStr,
   getEmployeeJoiningDateStr,
   isDateBeforeJoining,
+  isCountedAsPresent,
 } from "../src/utils/attendanceDateUtils";
 
 describe("attendanceDateUtils", () => {
@@ -74,6 +75,20 @@ describe("attendanceDateUtils", () => {
 
     it("returns false when joiningDate is null so legacy records are unaffected", () => {
       expect(isDateBeforeJoining("2026-11-01", null)).toBe(false);
+    });
+  });
+
+  describe("isCountedAsPresent", () => {
+    it("counts Full Day, Half Day, and Working.. with punchIn as Present", () => {
+      expect(isCountedAsPresent("2026-11-27T04:30:00Z", "Full Day", "COMPLETED")).toBe(true);
+      expect(isCountedAsPresent("2026-11-24T04:30:00Z", "Half Day", "COMPLETED")).toBe(true);
+      expect(isCountedAsPresent("2026-11-27T04:30:00Z", "Working..", "WORKING")).toBe(true);
+    });
+
+    it("does NOT count < 4.5h Absent days or missing punchIn as Present", () => {
+      expect(isCountedAsPresent("2026-11-23T09:51:00Z", "Absent", "COMPLETED")).toBe(false);
+      expect(isCountedAsPresent("2026-11-23T09:51:00Z", "Absent", "ABSENT")).toBe(false);
+      expect(isCountedAsPresent(null, "Absent (Not Logged In)", null)).toBe(false);
     });
   });
 });

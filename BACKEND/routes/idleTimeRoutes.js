@@ -133,25 +133,33 @@ router.get('/live-status', async (req, res) => {
       targetDates.push(date || new Date().toISOString().split('T')[0]);
     }
 
-    const allDocs = await LiveTracking.find({});
+    // Project only the dates requested and exclude heavy historical screenshots
+    const projection = { employeeId: 1 };
+    targetDates.forEach(tDate => {
+      projection[`dates.${tDate}`] = 1;
+    });
+
+    const allDocs = await LiveTracking.find({}, projection).lean();
 
     const liveArray = [];
     allDocs.forEach((doc) => {
       if (doc.dates) {
         targetDates.forEach(tDate => {
-          if (doc.dates.has(tDate)) {
-            const todayData = doc.dates.get(tDate);
+          const todayData = typeof doc.dates.get === 'function' 
+            ? doc.dates.get(tDate) 
+            : doc.dates[tDate];
+
+          if (todayData) {
             liveArray.push({
               _id: `${doc._id}_${tDate}`,
               employeeId: doc.employeeId,
               date: tDate,
-              currentStatus: todayData.currentStatus,
+              currentStatus: todayData.currentStatus || 'OFFLINE',
               lastPing: todayData.lastPing,
               idleSince: todayData.idleSince,
               activeWindow: todayData.activeWindow || null,
               idleTimeline: todayData.idleTimeline || [],
-          tabLogs: todayData.tabLogs || [],
-          activeWindow: todayData.activeWindow || null,
+              tabLogs: todayData.tabLogs || [],
               trackedWorkSeconds: todayData.trackedWorkSeconds || 0,
               trackedIdleSeconds: todayData.trackedIdleSeconds || 0,
               currentIdleScreenshot: todayData.currentIdleScreenshot || null,

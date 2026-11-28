@@ -39,7 +39,15 @@ const AdminLiveTracking = () => {
 
     // Filter to only show employees belonging to this admin
     const liveData = useMemo(() => {
-        return rawLiveData.filter(record => !!employeesMap[record.employeeId]);
+        if (!rawLiveData || rawLiveData.length === 0) return [];
+        const mapKeys = Object.keys(employeesMap);
+        if (mapKeys.length === 0) return rawLiveData;
+
+        return rawLiveData.filter(record => {
+            if (!record.employeeId) return false;
+            const id = String(record.employeeId).trim();
+            return !!(employeesMap[id] || employeesMap[id.toLowerCase()] || employeesMap[id.toUpperCase()]);
+        });
     }, [rawLiveData, employeesMap]);
 
     const [loading, setLoading] = useState(true);
@@ -111,7 +119,11 @@ const AdminLiveTracking = () => {
                 const map = {};
                 employees.forEach(emp => {
                     const empId = emp.employeeId || emp.empId || emp._id;
-                    if (empId) map[empId] = emp.name;
+                    if (empId) {
+                        map[empId] = emp.name;
+                        map[String(empId).toLowerCase()] = emp.name;
+                        map[String(empId).toUpperCase()] = emp.name;
+                    }
                 });
                 setEmployeesMap(map);
             } catch (err) {
